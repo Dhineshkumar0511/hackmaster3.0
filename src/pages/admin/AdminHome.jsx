@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminHome() {
-    const { teams, submissions, mentorMarks, evaluationResults, hackathonInfo } = useAppContext();
+    const { teams, submissions, mentorMarks, evaluationResults, hackathonInfo, batches, selectedBatch, setSelectedBatch } = useAppContext();
 
     const totalSubmissions = submissions.length;
     const evaluatedCount = Object.keys(evaluationResults).length;
@@ -22,6 +22,8 @@ export default function AdminHome() {
         count: submissions.filter(s => s.phase === phase).length,
     }));
 
+    const currentBatchInfo = batches.find(b => b.id === selectedBatch);
+
     return (
         <div>
             <div className="hero-banner" style={{ marginBottom: 'var(--space-2xl)' }}>
@@ -33,8 +35,21 @@ export default function AdminHome() {
                 </div>
             </div>
 
+            {/* Batch Selector */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: 'var(--space-xl)' }}>
+                {batches.map(b => (
+                    <button key={b.id} onClick={() => setSelectedBatch(b.id)} style={{
+                        padding: '10px 24px', borderRadius: '10px',
+                        border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                        background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                        color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                        fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.3s ease',
+                    }}>🎓 {b.label}</button>
+                ))}
+            </div>
+
             <div className="stats-grid">
-                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(108, 99, 255, 0.15)' }}>👥</div><div className="stat-value gradient-text">{hackathonInfo.totalTeams}</div><div className="stat-label">Total Teams</div></div>
+                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(108, 99, 255, 0.15)' }}>👥</div><div className="stat-value gradient-text">{teams.length}</div><div className="stat-label">Total Teams</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 212, 255, 0.15)' }}>🎯</div><div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>{teamsWithAssignment}</div><div className="stat-label">Teams Assigned</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 245, 160, 0.15)' }}>📤</div><div className="stat-value" style={{ color: 'var(--accent-green)' }}>{totalSubmissions}</div><div className="stat-label">Total Submissions</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(255, 140, 0, 0.15)' }}>🤖</div><div className="stat-value" style={{ color: 'var(--accent-orange)' }}>{evaluatedCount}</div><div className="stat-label">AI Evaluated</div></div>

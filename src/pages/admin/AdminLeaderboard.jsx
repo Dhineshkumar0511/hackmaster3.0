@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminLeaderboard() {
-    const { getLeaderboardData } = useAppContext();
+    const { getLeaderboardData, batches, selectedBatch, setSelectedBatch } = useAppContext();
     const leaderboard = getLeaderboardData();
 
     return (
@@ -10,6 +10,19 @@ export default function AdminLeaderboard() {
             <div className="page-header">
                 <h2 className="gradient-text">🏆 Leaderboard</h2>
                 <p>Live rankings based on AI evaluation scores + mentor marks</p>
+            </div>
+
+            {/* Batch Selector */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: 'var(--space-xl)' }}>
+                {batches.map(b => (
+                    <button key={b.id} onClick={() => setSelectedBatch(b.id)} style={{
+                        padding: '8px 20px', borderRadius: '8px',
+                        border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                        background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                        color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                        fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                    }}>🎓 {b.label}</button>
+                ))}
             </div>
 
             {/* Top 3 Podium */}

@@ -23,7 +23,7 @@ import AdminLeaderboard from './pages/admin/AdminLeaderboard';
 import AdminMentorMarks from './pages/admin/AdminMentorMarks';
 
 // Data
-import { USE_CASES, HACKATHON_INFO } from './data/constants';
+import { USE_CASES, USE_CASES_2ND_YEAR, HACKATHON_INFO, BATCHES, getUseCasesByBatch } from './data/constants';
 
 // ==========================================
 // API Helper
@@ -75,6 +75,7 @@ function App() {
     const [evaluationResults, setEvaluationResults] = useState({});
     const [mentorMarks, setMentorMarks] = useState({});
     const [unlockedRequirements, setUnlockedRequirementsState] = useState(5);
+    const [selectedBatch, setSelectedBatch] = useState('2027');
     const [toast, setToast] = useState(null);
     const [loading, setLoading] = useState(false);
 
@@ -117,43 +118,47 @@ function App() {
     // ---- Fetch Data ----
     const fetchTeams = useCallback(async () => {
         try {
-            const data = await apiFetch('/teams');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/teams?batch=${batch}`);
             setTeams(data);
         } catch (err) {
             console.error('Error fetching teams:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchSubmissions = useCallback(async () => {
         try {
-            const data = await apiFetch('/submissions');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/submissions?batch=${batch}`);
             setSubmissions(data);
         } catch (err) {
             console.error('Error fetching submissions:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchEvaluations = useCallback(async () => {
         try {
-            const data = await apiFetch('/evaluations');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/evaluations?batch=${batch}`);
             const map = {};
             data.forEach(ev => { map[ev.submission_id] = ev; });
             setEvaluationResults(map);
         } catch (err) {
             console.error('Error fetching evaluations:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchMentorMarks = useCallback(async () => {
         try {
-            const data = await apiFetch('/mentor-marks');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/mentor-marks?batch=${batch}`);
             const map = {};
             data.forEach(m => { map[m.team_id] = m; });
             setMentorMarks(map);
         } catch (err) {
             console.error('Error fetching mentor marks:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchSettings = useCallback(async () => {
         try {
@@ -186,7 +191,7 @@ function App() {
 
     useEffect(() => {
         if (user) refreshAll();
-    }, [user]);
+    }, [user, selectedBatch]);
 
     // ---- Team CRUD ----
     const updateTeamDetails = async (teamId, { members, mentor }) => {
@@ -209,6 +214,16 @@ function App() {
                 body: JSON.stringify({ useCaseId }),
             });
             showToast(useCaseId ? 'Use case assigned!' : 'Use case unassigned', 'success');
+            fetchTeams();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    };
+
+    const clearTeamRegistration = async (teamId) => {
+        try {
+            await apiFetch(`/teams/${teamId}/registration`, { method: 'DELETE' });
+            showToast('Team registration cleared!', 'success');
             fetchTeams();
         } catch (err) {
             showToast(err.message, 'error');
@@ -307,7 +322,8 @@ function App() {
             const phaseScore = (marks.phase1 || 0) + (marks.phase2 || 0) + (marks.phase3 || 0)
                 + (marks.innovation || 0) + (marks.presentation || 0) + (marks.teamwork || 0);
             // Requirement marks (up to 10 × 10 = 100)
-            const uc = team.use_case_id ? USE_CASES.find(u => u.id === team.use_case_id) : null;
+            const allUCs = [...USE_CASES, ...USE_CASES_2ND_YEAR];
+            const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
             const reqScore = uc
                 ? uc.requirements.reduce((sum, _, idx) => sum + (Number(marks[`req_${idx + 1}`]) || 0), 0)
                 : 0;
@@ -346,6 +362,12 @@ function App() {
         unlockedRequirements,
         setUnlockedRequirements,
         useCases: USE_CASES,
+        useCases2ndYear: USE_CASES_2ND_YEAR,
+        allUseCases: { '2027': USE_CASES, '2028': USE_CASES_2ND_YEAR },
+        getUseCasesByBatch,
+        batches: BATCHES,
+        selectedBatch,
+        setSelectedBatch,
         hackathonInfo: HACKATHON_INFO,
         loading,
         showToast,
@@ -355,6 +377,7 @@ function App() {
         fetchEvaluations,
         updateTeamDetails,
         assignUseCase,
+        clearTeamRegistration,
         addSubmission,
         deleteSubmission,
         deleteAllSubmissions,

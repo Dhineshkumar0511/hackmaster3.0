@@ -2,7 +2,8 @@ import React from 'react';
 import { useAppContext } from '../../App';
 
 export default function TeamUseCases() {
-    const { user, teams, useCases, unlockedRequirements } = useAppContext();
+    const { user, teams, getUseCasesByBatch, unlockedRequirements } = useAppContext();
+    const useCases = getUseCasesByBatch(user?.batch || '2027');
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
     const myUseCaseId = myTeam?.use_case_id;
 

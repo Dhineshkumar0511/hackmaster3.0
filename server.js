@@ -70,6 +70,7 @@ async function initDb() {
       role VARCHAR(20) NOT NULL,
       team_number INT,
       team_name VARCHAR(255),
+      batch VARCHAR(10) DEFAULT '2027',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -77,12 +78,14 @@ async function initDb() {
     await pool.execute(`
     CREATE TABLE IF NOT EXISTS teams (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      team_number INT UNIQUE NOT NULL,
+      team_number INT NOT NULL,
       name VARCHAR(255) NOT NULL,
       use_case_id INT,
       members TEXT,
       mentor TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      batch VARCHAR(10) DEFAULT '2027',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY unique_team_batch (team_number, batch)
     )
   `);
 
@@ -146,11 +149,40 @@ async function initDb() {
         await pool.execute("INSERT INTO settings (`key`, value) VALUES ('unlocked_requirements', '5')");
     }
 
+    // Migration: Add batch column if not exists
+    try {
+        await pool.execute("ALTER TABLE users ADD COLUMN batch VARCHAR(10) DEFAULT '2027'");
+        console.log('✅ Added batch column to users');
+    } catch (e) {
+        // Column already exists
+    }
+    try {
+        await pool.execute("ALTER TABLE teams ADD COLUMN batch VARCHAR(10) DEFAULT '2027'");
+        console.log('✅ Added batch column to teams');
+    } catch (e) {
+        // Column already exists
+    }
+    try {
+        // Drop old unique constraint and add new one
+        await pool.execute("ALTER TABLE teams DROP INDEX team_number");
+        await pool.execute("ALTER TABLE teams ADD UNIQUE KEY unique_team_batch (team_number, batch)");
+        console.log('✅ Updated teams unique constraint for batch');
+    } catch (e) {
+        // Already migrated
+    }
+
     // Seed if empty
     const [userCountRows] = await pool.execute('SELECT COUNT(*) AS cnt FROM users');
     if (userCountRows[0].cnt === 0) {
         console.log('🌱 Seeding initial data...');
         await seedData();
+    } else {
+        // Check if 2nd year teams exist, seed if missing
+        const [batch2028Rows] = await pool.execute("SELECT COUNT(*) AS cnt FROM users WHERE batch = '2028'");
+        if (batch2028Rows[0].cnt === 0) {
+            console.log('🌱 Seeding 2nd year (Batch 2028) teams...');
+            await seed2ndYearTeams();
+        }
     }
 
     console.log('✅ Database initialized');
@@ -160,11 +192,12 @@ async function seedData() {
     // Admin: admin / hackmaster2026
     const adminHash = bcrypt.hashSync('hackmaster2026', 10);
     await pool.execute(
-        'INSERT INTO users (username, password, role, team_name) VALUES (?, ?, ?, ?)',
-        ['admin', adminHash, 'admin', 'Administrator']
+        'INSERT INTO users (username, password, role, team_name, batch) VALUES (?, ?, ?, ?, ?)',
+        ['admin', adminHash, 'admin', 'Administrator', 'all']
     );
 
-    const teamNames = [
+    // ── 3rd YEAR TEAMS (Batch 2027) ──
+    const teamNames3rdYear = [
         'Neural Nexus', 'Code Crusaders', 'Data Dynamos', 'AI Architects',
         'Byte Builders', 'Pixel Pioneers', 'Logic Legends', 'Quantum Quants',
         'Cloud Crafters', 'Stack Smashers', 'Deep Thinkers', 'Algo Aces',
@@ -175,12 +208,12 @@ async function seedData() {
     ];
 
     console.log('');
-    console.log('   🔑 TEAM CREDENTIALS (default):');
-    console.log('   ─────────────────────────────────');
+    console.log('   🔑 3RD YEAR (Batch 2027) CREDENTIALS:');
+    console.log('   ─────────────────────────────────────');
 
     for (let i = 0; i < 28; i++) {
         const teamNum = i + 1;
-        const teamName = teamNames[i];
+        const teamName = teamNames3rdYear[i];
         const username = `team${teamNum}`;
         const password = `team${teamNum}@hack`;
         const passwordHash = bcrypt.hashSync(password, 10);
@@ -188,20 +221,92 @@ async function seedData() {
         console.log(`   Team ${String(teamNum).padStart(2, ' ')}: ${username} / ${password}`);
 
         await pool.execute(
-            'INSERT INTO users (username, password, role, team_number, team_name) VALUES (?, ?, ?, ?, ?)',
-            [username, passwordHash, 'team', teamNum, teamName]
+            'INSERT INTO users (username, password, role, team_number, team_name, batch) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, passwordHash, 'team', teamNum, teamName, '2027']
         );
 
         await pool.execute(
-            'INSERT INTO teams (team_number, name, members, mentor) VALUES (?, ?, ?, ?)',
-            [teamNum, teamName, '[]', '{}']
+            'INSERT INTO teams (team_number, name, members, mentor, batch) VALUES (?, ?, ?, ?, ?)',
+            [teamNum, teamName, '[]', '{}', '2027']
         );
     }
 
-    console.log('  ✅ Admin + 28 teams created');
+    // ── 2nd YEAR TEAMS (Batch 2028) ──
+    const teamNames2ndYear = [
+        'Alpha Coders', 'Beta Builders', 'Gamma Geeks', 'Delta Devs',
+        'Epsilon Elites', 'Zeta Zeros', 'Eta Engineers', 'Theta Thinkers',
+        'Iota Innovators', 'Kappa Koders', 'Lambda Learners', 'Mu Masters',
+        'Nu Navigators', 'Xi Xperts', 'Omicron Ops', 'Pi Programmers',
+        'Rho Riders', 'Sigma Squad', 'Tau Techies', 'Upsilon Units',
+        'Phi Fusion', 'Chi Champions', 'Psi Pioneers', 'Omega Ops',
+        'Nova Network', 'Zenith Zone', 'Apex AI', 'Prism Pros'
+    ];
+
+    console.log('');
+    console.log('   🔑 2ND YEAR (Batch 2028) CREDENTIALS:');
+    console.log('   ─────────────────────────────────────');
+
+    for (let i = 0; i < 28; i++) {
+        const teamNum = i + 1;
+        const teamName = teamNames2ndYear[i];
+        const username = `2y_team${teamNum}`;
+        const password = `2y_team${teamNum}@hack`;
+        const passwordHash = bcrypt.hashSync(password, 10);
+
+        console.log(`   Team ${String(teamNum).padStart(2, ' ')}: ${username} / ${password}`);
+
+        await pool.execute(
+            'INSERT INTO users (username, password, role, team_number, team_name, batch) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, passwordHash, 'team', teamNum, teamName, '2028']
+        );
+
+        await pool.execute(
+            'INSERT INTO teams (team_number, name, members, mentor, batch) VALUES (?, ?, ?, ?, ?)',
+            [teamNum, teamName, '[]', '{}', '2028']
+        );
+    }
+
+    console.log('  ✅ Admin + 28 (3rd Year) + 28 (2nd Year) = 57 users created');
 }
 
-// ==========================================
+// Incremental seed for 2nd year teams (existing DB migration)
+async function seed2ndYearTeams() {
+    const teamNames2ndYear = [
+        'Alpha Coders', 'Beta Builders', 'Gamma Geeks', 'Delta Devs',
+        'Epsilon Elites', 'Zeta Zeros', 'Eta Engineers', 'Theta Thinkers',
+        'Iota Innovators', 'Kappa Koders', 'Lambda Learners', 'Mu Masters',
+        'Nu Navigators', 'Xi Xperts', 'Omicron Ops', 'Pi Programmers',
+        'Rho Riders', 'Sigma Squad', 'Tau Techies', 'Upsilon Units',
+        'Phi Fusion', 'Chi Champions', 'Psi Pioneers', 'Omega Ops',
+        'Nova Network', 'Zenith Zone', 'Apex AI', 'Prism Pros'
+    ];
+
+    for (let i = 0; i < 28; i++) {
+        const teamNum = i + 1;
+        const teamName = teamNames2ndYear[i];
+        const username = `2y_team${teamNum}`;
+        const password = `2y_team${teamNum}@hack`;
+        const passwordHash = bcrypt.hashSync(password, 10);
+
+        console.log(`   2nd Year Team ${String(teamNum).padStart(2, ' ')}: ${username} / ${password}`);
+
+        await pool.execute(
+            'INSERT INTO users (username, password, role, team_number, team_name, batch) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, passwordHash, 'team', teamNum, teamName, '2028']
+        );
+
+        await pool.execute(
+            'INSERT INTO teams (team_number, name, members, mentor, batch) VALUES (?, ?, ?, ?, ?)',
+            [teamNum, teamName, '[]', '{}', '2028']
+        );
+    }
+
+    // Update existing 3rd year teams' batch to '2027' if not set
+    await pool.execute("UPDATE users SET batch = '2027' WHERE batch IS NULL AND role = 'team'");
+    await pool.execute("UPDATE teams SET batch = '2027' WHERE batch IS NULL");
+
+    console.log('  ✅ 28 (2nd Year Batch 2028) teams created');
+}
 // SETTINGS HELPER
 // ==========================================
 async function getSetting(key) {
@@ -267,6 +372,7 @@ app.post('/api/auth/login', async (req, res) => {
                 role: user.role,
                 teamNumber: user.team_number,
                 teamName: user.team_name,
+                batch: user.batch,
             },
             JWT_SECRET,
             { expiresIn: '24h' }
@@ -280,6 +386,7 @@ app.post('/api/auth/login', async (req, res) => {
                 role: user.role,
                 teamNumber: user.team_number,
                 teamName: user.team_name,
+                batch: user.batch,
             }
         });
     } catch (err) {
@@ -339,7 +446,20 @@ app.put('/api/settings/unlocked-requirements', authMiddleware, adminOnly, async 
 
 app.get('/api/teams', authMiddleware, async (req, res) => {
     try {
-        const [rows] = await pool.execute('SELECT * FROM teams ORDER BY team_number');
+        const batch = req.query.batch;
+        let query = 'SELECT * FROM teams';
+        const params = [];
+
+        if (batch) {
+            query += ' WHERE batch = ?';
+            params.push(batch);
+        } else if (req.user.role === 'team' && req.user.batch) {
+            query += ' WHERE batch = ?';
+            params.push(req.user.batch);
+        }
+        query += ' ORDER BY team_number';
+
+        const [rows] = await pool.execute(query, params);
         const teams = rows.map(t => ({
             ...t,
             members: JSON.parse(t.members || '[]'),
@@ -379,20 +499,36 @@ app.put('/api/teams/:id/usecase', authMiddleware, adminOnly, async (req, res) =>
     res.json({ message: 'Use case assigned' });
 });
 
+// Admin: Clear team registration (members + mentor)
+app.delete('/api/teams/:id/registration', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        await pool.execute("UPDATE teams SET members = '[]', mentor = '{}' WHERE id = ?", [req.params.id]);
+        res.json({ message: 'Team registration cleared' });
+    } catch (err) {
+        console.error('Clear registration error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // ==========================================
 // SUBMISSION ROUTES
 // ==========================================
 
 app.get('/api/submissions', authMiddleware, async (req, res) => {
     try {
-        let query = 'SELECT * FROM submissions';
+        const batch = req.query.batch;
+        let query = 'SELECT s.* FROM submissions s JOIN teams t ON s.team_id = t.id';
         const params = [];
 
         if (req.user.role === 'team') {
-            query += ' WHERE team_number = ?';
-            params.push(req.user.teamNumber);
+            query += ' WHERE s.team_number = ? AND t.batch = ?';
+            params.push(req.user.teamNumber, req.user.batch);
+        } else if (batch) {
+            query += ' WHERE t.batch = ?';
+            params.push(batch);
         }
-        query += ' ORDER BY timestamp DESC';
+
+        query += ' ORDER BY s.timestamp DESC';
 
         const [rows] = await pool.execute(query, params);
         res.json(rows);
@@ -454,8 +590,31 @@ app.delete('/api/submissions', authMiddleware, adminOnly, async (req, res) => {
 // ==========================================
 
 app.get('/api/evaluations', authMiddleware, async (req, res) => {
-    const [rows] = await pool.execute('SELECT * FROM evaluation_results ORDER BY evaluated_at DESC');
-    res.json(rows);
+    try {
+        const batch = req.query.batch;
+        let query = `
+            SELECT er.* 
+            FROM evaluation_results er 
+            JOIN submissions s ON er.submission_id = s.id 
+            JOIN teams t ON s.team_id = t.id
+        `;
+        const params = [];
+
+        if (req.user.role === 'team') {
+            query += ' WHERE s.team_number = ? AND t.batch = ?';
+            params.push(req.user.teamNumber, req.user.batch);
+        } else if (batch) {
+            query += ' WHERE t.batch = ?';
+            params.push(batch);
+        }
+
+        query += ' ORDER BY er.evaluated_at DESC';
+        const [rows] = await pool.execute(query, params);
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch evaluations error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 app.post('/api/evaluations', authMiddleware, adminOnly, async (req, res) => {
@@ -537,8 +696,26 @@ Respond ONLY in valid JSON:
 // ==========================================
 
 app.get('/api/mentor-marks', authMiddleware, async (req, res) => {
-    const [rows] = await pool.execute('SELECT * FROM mentor_marks ORDER BY team_id');
-    res.json(rows);
+    try {
+        const batch = req.query.batch;
+        let query = 'SELECT m.* FROM mentor_marks m JOIN teams t ON m.team_id = t.id';
+        const params = [];
+
+        if (req.user.role === 'team') {
+            query += ' WHERE t.batch = ?';
+            params.push(req.user.batch);
+        } else if (batch) {
+            query += ' WHERE t.batch = ?';
+            params.push(batch);
+        }
+
+        query += ' ORDER BY m.team_id';
+        const [rows] = await pool.execute(query, params);
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch mentor marks error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 app.post('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
@@ -661,7 +838,8 @@ async function start() {
         console.log(`   📦 Frontend: ${existsSync(DIST_PATH) ? 'Serving from dist/' : 'Not built (run npm run build)'}`);
         console.log('');
         console.log('   🔑 Admin: admin / hackmaster2026');
-        console.log('   👥 Teams: team1 / team1@hack ... team28 / team28@hack');
+        console.log('   👥 3rd Year: team1 / team1@hack ... team28 / team28@hack');
+        console.log('   👥 2nd Year: 2y_team1 / 2y_team1@hack ... 2y_team28 / 2y_team28@hack');
         console.log('═══════════════════════════════════════════════');
         console.log('');
     });

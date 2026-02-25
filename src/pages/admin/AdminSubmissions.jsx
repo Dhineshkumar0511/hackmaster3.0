@@ -2,16 +2,21 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminSubmissions() {
-    const { teams, submissions, useCases, evaluationResults, fetchEvaluations, deleteSubmission, deleteAllSubmissions, showToast } = useAppContext();
+    const { teams, submissions, useCases, allUseCases, evaluationResults, fetchEvaluations, deleteSubmission, deleteAllSubmissions, showToast } = useAppContext();
     const [evaluatingId, setEvaluatingId] = useState(null);
     const [showDeleteAll, setShowDeleteAll] = useState(false);
     const [filterTeam, setFilterTeam] = useState('all');
     const [filterPhase, setFilterPhase] = useState('all');
 
+    // lookup from all batches
+    const findUseCase = (useCaseId) => {
+        return [...(allUseCases['2027'] || []), ...(allUseCases['2028'] || [])].find(u => u.id === useCaseId);
+    };
+
     const handleEvaluate = async (submission) => {
         setEvaluatingId(submission.id);
         try {
-            const useCase = useCases.find(u => u.id === submission.use_case_id);
+            const useCase = findUseCase(submission.use_case_id);
             const requirement = useCase?.requirements?.[submission.requirement_number - 1] || 'Unknown';
 
             const token = localStorage.getItem('hackmaster_token');
