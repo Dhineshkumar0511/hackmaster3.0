@@ -124,7 +124,7 @@ export default function LoginPage() {
                         <div className="glass-card" style={{ padding: 'var(--space-md)', textAlign: 'center' }}>
                             <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>👥</div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Teams</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-orange)' }}>28 Teams</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-orange)' }}>56 Teams (2 Batches)</div>
                         </div>
                         <div className="glass-card" style={{ padding: 'var(--space-md)', textAlign: 'center' }}>
                             <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>🧠</div>
@@ -134,7 +134,7 @@ export default function LoginPage() {
                         <div className="glass-card" style={{ padding: 'var(--space-md)', textAlign: 'center' }}>
                             <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>💡</div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Use Cases</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-magenta)' }}>14 Challenges</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-magenta)' }}>28 Challenges</div>
                         </div>
                     </div>
 
@@ -286,17 +286,18 @@ export default function LoginPage() {
                         ) : (
                             <>
                                 <div className="form-group">
-                                    <label className="form-label">SELECT YOUR TEAM</label>
-                                    <select
+                                    <label className="form-label">TEAM USERNAME</label>
+                                    <input
                                         className="form-input"
+                                        placeholder="e.g. team1 or 2y_team1"
                                         value={formData.username}
                                         onChange={e => setFormData({ ...formData, username: e.target.value })}
-                                    >
-                                        <option value="">Select your team...</option>
-                                        {Array.from({ length: 28 }, (_, i) => (
-                                            <option key={i + 1} value={`team${i + 1}`}>Team {i + 1}</option>
-                                        ))}
-                                    </select>
+                                        autoComplete="username"
+                                    />
+                                    <div style={{ marginTop: '8px', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                        <span style={{ color: 'var(--accent-cyan)' }}>3rd Year:</span> team1 – team28 &nbsp;|&nbsp;
+                                        <span style={{ color: 'var(--accent-orange)' }}>2nd Year:</span> 2y_team1 – 2y_team28
+                                    </div>
                                 </div>
                                 <div className="form-group">
                                     <label className="form-label">PASSWORD</label>
