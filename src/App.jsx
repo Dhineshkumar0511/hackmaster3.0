@@ -257,10 +257,12 @@ function App() {
 
     const deleteAllSubmissions = async () => {
         try {
-            await apiFetch('/submissions', { method: 'DELETE' });
-            showToast('All submissions deleted', 'info');
+            if (!window.confirm(`Are you sure you want to delete ALL submissions for the ${selectedBatch} batch? This action is IRREVERSIBLE.`)) return;
+            await apiFetch(`/submissions?batch=${selectedBatch}`, { method: 'DELETE' });
+            showToast('Batch submissions cleared!', 'info');
             fetchSubmissions();
             fetchEvaluations();
+            fetchTeams();
         } catch (err) {
             showToast(err.message, 'error');
         }
@@ -305,6 +307,17 @@ function App() {
         }
     };
 
+    const deleteAllMentorMarks = async () => {
+        try {
+            if (!window.confirm(`Are you sure you want to delete ALL mentor marks for the ${selectedBatch} batch?`)) return;
+            await apiFetch(`/mentor-marks?batch=${selectedBatch}`, { method: 'DELETE' });
+            showToast('All mentor marks cleared!', 'info');
+            fetchMentorMarks();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    };
+
     // ---- Leaderboard ----
     const getLeaderboardData = useCallback(() => {
         return teams.map(team => {
@@ -321,13 +334,25 @@ function App() {
             // Phase marks (6 × 10 = 60)
             const phaseScore = (marks.phase1 || 0) + (marks.phase2 || 0) + (marks.phase3 || 0)
                 + (marks.innovation || 0) + (marks.presentation || 0) + (marks.teamwork || 0);
+
             // Requirement marks (up to 10 × 10 = 100)
-            const allUCs = [...USE_CASES, ...USE_CASES_2ND_YEAR];
-            const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
-            const reqScore = uc
-                ? uc.requirements.reduce((sum, _, idx) => sum + (Number(marks[`req_${idx + 1}`]) || 0), 0)
-                : 0;
-            const mentorScore = phaseScore + reqScore;
+            const batchUCs = getUseCasesByBatch(team.batch || '2027');
+            const uc = team.use_case_id ? batchUCs.find(u => u.id === team.use_case_id) : null;
+
+            let reqScore = 0;
+            if (uc && uc.requirements) {
+                for (let i = 1; i <= uc.requirements.length; i++) {
+                    reqScore += (Number(marks[`req${i}`]) || 0);
+                }
+            }
+
+            // Normalization to 100 scale
+            const normAi = aiScore;
+            const normPhase = Math.round((phaseScore / 60) * 100);
+            const normReq = (uc && uc.requirements && uc.requirements.length > 0) ? Math.round((reqScore / (uc.requirements.length * 10)) * 100) : 0;
+
+            // Consolidated Total (Average of the three components)
+            const totalScore = Math.round((normAi + normPhase + normReq) / 3);
 
             const reqSatisfied = teamEvals.reduce((sum, e) => sum + (e.requirements_met || 0), 0);
             const totalReqs = teamEvals.reduce((sum, e) => sum + (e.total_requirements || 0), 0);
@@ -339,10 +364,10 @@ function App() {
                 useCaseId: team.use_case_id,
                 useCaseTitle: uc ? `#${uc.id} ${uc.title}` : 'Not Assigned',
                 aiScore,
-                phaseScore,
-                reqScore,
-                mentorScore,
-                totalScore: aiScore + mentorScore,
+                phaseScore, // Raw sum (out of 60)
+                reqScore: normReq, // Normalized (out of 100)
+                normPhase, // Normalized (out of 100)
+                totalScore,
                 submissionCount: teamSubs.length,
                 reqSatisfied,
                 totalReqs,
@@ -384,6 +409,7 @@ function App() {
         deleteTeamSubmissions,
         updateEvaluationResult,
         updateMentorMarks,
+        deleteAllMentorMarks,
         getLeaderboardData,
     };
 

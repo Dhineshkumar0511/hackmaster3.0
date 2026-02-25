@@ -39,9 +39,10 @@ export default function AdminLeaderboard() {
                         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: '4px' }}>{leaderboard[1].name}</div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>Team #{leaderboard[1].teamNumber}</div>
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: 900, color: '#C0C0C0' }}>{leaderboard[1].totalScore}</div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '8px' }}>
-                            <span className="chip">AI: {leaderboard[1].aiScore}</span>
-                            <span className="chip">Mentor: {leaderboard[1].mentorScore}</span>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '8px', flexWrap: 'wrap' }}>
+                            <span className="chip" style={{ background: 'rgba(0, 242, 254, 0.1)', color: 'var(--accent-cyan)' }}>AI: {leaderboard[1].aiScore}%</span>
+                            <span className="chip" style={{ background: 'rgba(108, 99, 255, 0.1)', color: 'var(--primary-light)' }}>Phase: {leaderboard[1].normPhase}%</span>
+                            <span className="chip" style={{ background: 'rgba(255, 61, 113, 0.1)', color: 'var(--accent-magenta)' }}>Req: {leaderboard[1].reqScore}%</span>
                         </div>
                     </div>
                 )}
@@ -62,10 +63,10 @@ export default function AdminLeaderboard() {
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: '2.5rem', fontWeight: 900 }}>
                             <span className="gradient-text">{leaderboard[0].totalScore}</span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '12px' }}>
-                            <span className="chip">AI: {leaderboard[0].aiScore}</span>
-                            <span className="chip">Mentor: {leaderboard[0].mentorScore}</span>
-                            <span className="chip">Subs: {leaderboard[0].submissionCount}</span>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '12px', flexWrap: 'wrap' }}>
+                            <span className="chip" style={{ background: 'rgba(0, 242, 254, 0.1)', color: 'var(--accent-cyan)' }}>AI: {leaderboard[0].aiScore}%</span>
+                            <span className="chip" style={{ background: 'rgba(108, 99, 255, 0.1)', color: 'var(--primary-light)' }}>Phase: {leaderboard[0].normPhase}%</span>
+                            <span className="chip" style={{ background: 'rgba(255, 61, 113, 0.1)', color: 'var(--accent-magenta)' }}>Req: {leaderboard[0].reqScore}%</span>
                         </div>
                     </div>
                 )}
@@ -82,9 +83,10 @@ export default function AdminLeaderboard() {
                         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: '4px' }}>{leaderboard[2].name}</div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>Team #{leaderboard[2].teamNumber}</div>
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: 900, color: '#CD7F32' }}>{leaderboard[2].totalScore}</div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '8px' }}>
-                            <span className="chip">AI: {leaderboard[2].aiScore}</span>
-                            <span className="chip">Mentor: {leaderboard[2].mentorScore}</span>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '8px', flexWrap: 'wrap' }}>
+                            <span className="chip" style={{ background: 'rgba(0, 242, 254, 0.1)', color: 'var(--accent-cyan)' }}>AI: {leaderboard[2].aiScore}%</span>
+                            <span className="chip" style={{ background: 'rgba(108, 99, 255, 0.1)', color: 'var(--primary-light)' }}>Phase: {leaderboard[2].normPhase}%</span>
+                            <span className="chip" style={{ background: 'rgba(255, 61, 113, 0.1)', color: 'var(--accent-magenta)' }}>Req: {leaderboard[2].reqScore}%</span>
                         </div>
                     </div>
                 )}
@@ -98,10 +100,9 @@ export default function AdminLeaderboard() {
                             <th>Rank</th>
                             <th>Team</th>
                             <th>Use Case</th>
-                            <th>Submissions</th>
-                            <th>Req. Met</th>
                             <th>AI Score</th>
-                            <th>Mentor Score</th>
+                            <th>Phase (100)</th>
+                            <th>Req (100)</th>
                             <th>Total</th>
                         </tr>
                     </thead>
@@ -121,26 +122,14 @@ export default function AdminLeaderboard() {
                                 <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '200px' }}>
                                     {team.useCaseTitle}
                                 </td>
-                                <td><span className="badge badge-primary">{team.submissionCount}</span></td>
-                                <td>
-                                    {team.totalReqs > 0 ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <div className="progress-bar" style={{ width: '60px' }}>
-                                                <div className="progress-fill" style={{ width: `${(team.reqSatisfied / team.totalReqs) * 100}%` }} />
-                                            </div>
-                                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{team.reqSatisfied}/{team.totalReqs}</span>
-                                        </div>
-                                    ) : (
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
-                                    )}
-                                </td>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-cyan)' }}>{team.aiScore}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-green)' }}>{team.mentorScore}</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-cyan)' }}>{team.aiScore}%</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary-light)' }}>{team.normPhase}%</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-magenta)' }}>{team.reqScore}%</td>
                                 <td>
                                     <span style={{
                                         fontFamily: 'var(--font-display)',
                                         fontWeight: 800,
-                                        fontSize: '1.1rem',
+                                        fontSize: '1.2rem',
                                         color: idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : 'var(--text-primary)',
                                     }}>
                                         {team.totalScore}

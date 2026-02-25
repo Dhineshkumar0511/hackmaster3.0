@@ -44,10 +44,11 @@ export default function TeamLeaderboard() {
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 900 }}>
                             <span className="gradient-text">{team.totalScore}</span>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Score</div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-md)', marginTop: '12px' }}>
-                            <span className="chip">AI: {team.aiScore}</span>
-                            <span className="chip">Mentor: {team.mentorScore}</span>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Consolidated Total</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)', marginTop: '8px', flexWrap: 'wrap' }}>
+                            <span className="chip" title="AI Audit Score">AI: {team.aiScore}%</span>
+                            <span className="chip" title="Mentor Phase Marks">PH: {team.normPhase}%</span>
+                            <span className="chip" title="Requirement Marks">RQ: {team.reqScore}%</span>
                         </div>
                     </div>
                 ))}
@@ -61,10 +62,10 @@ export default function TeamLeaderboard() {
                             <th>Rank</th>
                             <th>Team</th>
                             <th>Use Case</th>
-                            <th>Submissions</th>
                             <th>AI Score</th>
-                            <th>Mentor Score</th>
-                            <th>Total Score</th>
+                            <th>Phase (100)</th>
+                            <th>Req (100)</th>
+                            <th>Total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -88,20 +89,20 @@ export default function TeamLeaderboard() {
                                 <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '200px' }}>
                                     {team.useCaseTitle}
                                 </td>
-                                <td>
-                                    <span className="badge badge-primary">{team.submissionCount}</span>
-                                </td>
                                 <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-cyan)' }}>
-                                    {team.aiScore}
+                                    {team.aiScore}%
                                 </td>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-green)' }}>
-                                    {team.mentorScore}
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary-light)' }}>
+                                    {team.normPhase}%
+                                </td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-magenta)' }}>
+                                    {team.reqScore}%
                                 </td>
                                 <td>
                                     <span style={{
                                         fontFamily: 'var(--font-display)',
                                         fontWeight: 800,
-                                        fontSize: '1.1rem',
+                                        fontSize: '1.2rem',
                                         color: idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : 'var(--text-primary)',
                                     }}>
                                         {team.totalScore}

@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminSubmissions() {
-    const { teams, submissions, useCases, allUseCases, evaluationResults, fetchEvaluations, deleteSubmission, deleteAllSubmissions, showToast } = useAppContext();
+    const {
+        teams, submissions, useCases, allUseCases, evaluationResults,
+        fetchEvaluations, deleteSubmission, deleteAllSubmissions, showToast,
+        selectedBatch, setSelectedBatch, batches
+    } = useAppContext();
     const [selectedReport, setSelectedReport] = useState(null);
     const [evaluatingId, setEvaluatingId] = useState(null);
     const [showDeleteAll, setShowDeleteAll] = useState(false);
@@ -145,20 +149,34 @@ export default function AdminSubmissions() {
             {selectedReport && <ReportModal sub={selectedReport.sub} report={selectedReport.report} />}
             <div className="page-header">
                 <h2 className="gradient-text">📤 Submission Dashboard</h2>
-                <p>Manage and evaluate all team submissions</p>
+                <p>Manage and evaluate all team submissions — Batch {selectedBatch}</p>
+            </div>
+
+            {/* Batch Selector */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: 'var(--space-xl)' }}>
+                {batches.map(b => (
+                    <button key={b.id} onClick={() => { setSelectedBatch(b.id); setFilterTeam('all'); }} style={{
+                        padding: '10px 24px', borderRadius: '12px',
+                        border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                        background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                        color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                        fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+                        transition: 'all 0.3s ease'
+                    }}>🎓 {b.label}</button>
+                ))}
             </div>
 
             <div className="stats-grid" style={{ marginBottom: 'var(--space-xl)' }}>
-                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 245, 160, 0.15)' }}>📤</div><div className="stat-value" style={{ color: 'var(--accent-green)' }}>{submissions.length}</div><div className="stat-label">Total</div></div>
+                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 245, 160, 0.15)' }}>📤</div><div className="stat-value" style={{ color: 'var(--accent-green)' }}>{submissions.length}</div><div className="stat-label">Total Submissions</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 212, 255, 0.15)' }}>✅</div><div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>{Object.keys(evaluationResults).length}</div><div className="stat-label">Evaluated</div></div>
-                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(255, 140, 0, 0.15)' }}>⏳</div><div className="stat-value" style={{ color: 'var(--accent-orange)' }}>{pendingCount}</div><div className="stat-label">Pending</div></div>
+                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(255, 140, 0, 0.15)' }}>⏳</div><div className="stat-value" style={{ color: 'var(--accent-orange)' }}>{pendingCount}</div><div className="stat-label">Pending AI Audit</div></div>
             </div>
 
             <div className="glass-card section-card" style={{ marginBottom: 'var(--space-xl)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-md)' }}>
                     <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
-                        <select className="form-input" value={filterTeam} onChange={e => setFilterTeam(e.target.value)} style={{ width: '200px' }}>
-                            <option value="all">All Teams</option>
+                        <select className="form-input" value={filterTeam} onChange={e => setFilterTeam(e.target.value)} style={{ width: '220px' }}>
+                            <option value="all">All {selectedBatch === '2027' ? '3rd Year' : '2nd Year'} Teams</option>
                             {teams.filter(t => submissions.some(s => s.team_id === t.id)).map(t => <option key={t.id} value={t.id}>Team {t.team_number} — {t.name}</option>)}
                         </select>
                         <select className="form-input" value={filterPhase} onChange={e => setFilterPhase(e.target.value)} style={{ width: '150px' }}>

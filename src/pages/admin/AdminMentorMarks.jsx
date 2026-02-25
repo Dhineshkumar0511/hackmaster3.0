@@ -11,7 +11,7 @@ const PHASE_CATEGORIES = [
 ];
 
 export default function AdminMentorMarks() {
-    const { teams, mentorMarks, updateMentorMarks, allUseCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
+    const { teams, mentorMarks, updateMentorMarks, deleteAllMentorMarks, evaluationResults, submissions, allUseCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
     const [selectedTeam, setSelectedTeam] = useState('');
     const [marks, setMarks] = useState({});
     const [activeTab, setActiveTab] = useState('phase'); // 'phase' or 'requirement'
@@ -24,9 +24,29 @@ export default function AdminMentorMarks() {
         : null;
 
     const handleTeamSelect = (teamId) => {
+        if (!teamId) {
+            setSelectedTeam('');
+            setMarks({});
+            return;
+        }
         setSelectedTeam(teamId);
-        setMarks(mentorMarks[teamId] || {});
+        // Ensure numeric lookup for context marks
+        const existingMarks = mentorMarks[Number(teamId)] || {};
+        setMarks(existingMarks);
     };
+
+    // Keep local marks in sync if context changes (e.g. after save/fetch)
+    React.useEffect(() => {
+        if (selectedTeam) {
+            const contextMarks = mentorMarks[Number(selectedTeam)];
+            if (contextMarks) {
+                setMarks(prev => {
+                    // Only update if we don't have local changes or after a successful context update
+                    return contextMarks;
+                });
+            }
+        }
+    }, [mentorMarks, selectedTeam]);
 
     const handleMarkChange = (key, value, max = 10) => {
         const numVal = Math.min(max, Math.max(0, parseInt(value) || 0));
@@ -44,56 +64,76 @@ export default function AdminMentorMarks() {
 
     // Requirement-based total
     const reqTotal = assignedUseCase
-        ? assignedUseCase.requirements.reduce((sum, _, idx) => sum + (Number(marks[`req_${idx + 1}`]) || 0), 0)
+        ? assignedUseCase.requirements.reduce((sum, _, idx) => sum + (Number(marks[`req${idx + 1}`]) || 0), 0)
         : 0;
     const reqMax = assignedUseCase ? assignedUseCase.requirements.length * 10 : 0;
 
-    const grandTotal = phaseTotal + reqTotal;
-    const grandMax = phaseMax + reqMax;
+    // AI Score (average)
+    const teamSubs = submissions.filter(s => s.team_id === parseInt(selectedTeam) || s.team_number === selectedTeamData?.team_number);
+    const teamEvals = teamSubs.map(s => evaluationResults[s.id]).filter(Boolean);
+    const aiScore = teamEvals.length ? Math.round(teamEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / teamEvals.length) : 0;
+
+    // Normalizations
+    const normAi = aiScore;
+    const normPhase = Math.round((phaseTotal / 60) * 100);
+    const normReq = reqMax > 0 ? Math.round((reqTotal / reqMax) * 100) : 0;
+
+    const grandConsolidated = Math.round((normAi + normPhase + normReq) / 3);
 
     return (
         <div>
             <div className="page-header">
                 <h2 className="gradient-text">✍️ Mentor Evaluation</h2>
-                <p>Phase-wise marks ({phaseMax} max) + Requirement-based marks ({reqMax} max) = {grandMax} total</p>
+                <p>Consolidated Score: Average of (AI Audit + Phase Marks + Req Marks)</p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-xl)', flexWrap: 'wrap', gap: '16px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    {batches.map(b => (
+                        <button key={b.id} onClick={() => { setSelectedBatch(b.id); setSelectedTeam(''); }} style={{
+                            padding: '10px 24px', borderRadius: '12px',
+                            border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                            background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                            color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                            fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+                        }}>🎓 {b.label}</button>
+                    ))}
+                </div>
+                <button className="btn btn-danger btn-sm" onClick={deleteAllMentorMarks}>🗑️ Clear Batch Marks</button>
             </div>
 
             {/* Team Selection */}
             <div className="glass-card section-card" style={{ marginBottom: 'var(--space-xl)' }}>
-                <h3>🎯 Select Team</h3>
+                <h3>🎯 Select {selectedBatch === '2027' ? '3rd Year' : '2nd Year'} Team</h3>
                 <select className="form-input" value={selectedTeam} onChange={e => handleTeamSelect(e.target.value)} style={{ maxWidth: '500px' }}>
                     <option value="">Select a team...</option>
                     {teams.map(t => {
                         const hasMarks = mentorMarks[t.id];
                         const uc = t.use_case_id ? allUCs.find(u => u.id === t.use_case_id) : null;
-                        return <option key={t.id} value={t.id}>Team {t.team_number} — {t.name}{uc ? ` [UC #${uc.id}: ${uc.title.substring(0, 30)}]` : ' [No UC]'}{hasMarks ? ' ✅' : ''}</option>;
+                        return <option key={t.id} value={t.id}>Team {t.team_number} — {t.name}{uc ? ` [UC #${uc.id}]` : ' [No UC]'}{hasMarks ? ' ✅' : ''}</option>;
                     })}
                 </select>
             </div>
 
             {selectedTeam && (
                 <>
-                    {/* Team Info Card */}
-                    <div className="glass-card section-card" style={{ marginBottom: 'var(--space-xl)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-md)' }}>
-                            <div>
-                                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', marginBottom: '4px' }}>{selectedTeamData?.name}</h3>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Team #{selectedTeamData?.team_number}</span>
-                                {assignedUseCase && (
-                                    <div style={{ marginTop: '4px' }}>
-                                        <span className="badge badge-info">UC #{assignedUseCase.id}: {assignedUseCase.title}</span>
-                                    </div>
-                                )}
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontFamily: 'var(--font-display)', fontSize: '2.2rem', fontWeight: 900 }}>
-                                    <span className={grandTotal >= (grandMax * 0.7) ? 'gradient-text' : ''} style={{ color: grandTotal < (grandMax * 0.7) ? 'var(--accent-orange)' : undefined }}>{grandTotal}</span>
-                                    <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/{grandMax}</span>
-                                </div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                    Phase: {phaseTotal}/{phaseMax} | Req: {reqTotal}/{reqMax}
-                                </div>
-                            </div>
+                    {/* Consolidated Score Card */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-md)', marginBottom: 'var(--space-xl)' }}>
+                        <div className="glass-card" style={{ padding: 'var(--space-lg)', textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--accent-cyan)' }}>{normAi}%</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>AI Audit Average</div>
+                        </div>
+                        <div className="glass-card" style={{ padding: 'var(--space-lg)', textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--primary-light)' }}>{normPhase}%</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Phase Marks (Norm)</div>
+                        </div>
+                        <div className="glass-card" style={{ padding: 'var(--space-lg)', textAlign: 'center' }}>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--accent-magenta)' }}>{normReq}%</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Requirement Marks</div>
+                        </div>
+                        <div className="glass-card" style={{ padding: 'var(--space-lg)', textAlign: 'center', background: 'linear-gradient(135deg, rgba(108, 99, 255, 0.1), rgba(0, 242, 254, 0.1))', border: '1px solid var(--primary)' }}>
+                            <div style={{ fontSize: '2.5rem', fontWeight: 900 }} className="gradient-text">{grandConsolidated}</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>CONSOLIDATED TOTAL</div>
                         </div>
                     </div>
 
@@ -138,7 +178,7 @@ export default function AdminMentorMarks() {
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 'var(--space-lg)' }}>UC #{assignedUseCase.id}: {assignedUseCase.title}</p>
 
                                     {assignedUseCase.requirements.map((req, idx) => {
-                                        const key = `req_${idx + 1}`;
+                                        const key = `req${idx + 1}`;
                                         const val = marks[key] || 0;
                                         return (
                                             <div key={idx} className="mark-input-group">
@@ -171,51 +211,74 @@ export default function AdminMentorMarks() {
 
                     {/* Save/Reset */}
                     <div style={{ display: 'flex', gap: 'var(--space-md)', marginBottom: 'var(--space-2xl)' }}>
-                        <button className="btn btn-primary" onClick={handleSave}>💾 Save All Marks</button>
-                        <button className="btn btn-secondary" onClick={() => setMarks({})}>🔄 Reset</button>
+                        <button className="btn btn-primary" onClick={handleSave}>💾 Save Marks for Team #{selectedTeamData?.team_number}</button>
+                        <button className="btn btn-secondary" onClick={() => setMarks({})}>🔄 Reset Fields</button>
                     </div>
                 </>
             )}
 
             {/* Overview Table */}
             <div className="glass-card section-card">
-                <h3>📊 All Teams Marks Overview</h3>
-                {Object.keys(mentorMarks).length === 0 ? (
-                    <div className="empty-state" style={{ padding: 'var(--space-xl)' }}><div className="empty-icon">✍️</div><h3>No Marks Yet</h3><p>Select a team above</p></div>
+                <h3>📊 Teams Consolidated Score Overview — Batch {selectedBatch}</h3>
+                {teams.length === 0 ? (
+                    <div className="empty-state" style={{ padding: 'var(--space-xl)' }}><div className="empty-icon">👥</div><h3>No Teams in this Batch</h3></div>
                 ) : (
                     <div className="table-container" style={{ border: 'none' }}>
                         <table className="data-table">
                             <thead>
                                 <tr>
                                     <th>Team</th>
-                                    <th>Use Case</th>
-                                    {PHASE_CATEGORIES.map(cat => <th key={cat.key}>{cat.label}</th>)}
-                                    <th>Phase</th>
-                                    <th>Req</th>
-                                    <th>Total</th>
+                                    <th>AI Audit</th>
+                                    <th>Phase (100)</th>
+                                    <th>Req (100)</th>
+                                    <th>Consolidated</th>
+                                    <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {teams.filter(t => mentorMarks[t.id]).map(team => {
+                                {teams.map(team => {
                                     const m = mentorMarks[team.id] || {};
-                                    const teamPhaseTotal = PHASE_CATEGORIES.reduce((sum, cat) => sum + (Number(m[cat.key]) || 0), 0);
+                                    const tPhaseTotal = PHASE_CATEGORIES.reduce((sum, cat) => sum + (Number(m[cat.key]) || 0), 0);
                                     const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
-                                    const teamReqTotal = uc
-                                        ? uc.requirements.reduce((sum, _, idx) => sum + (Number(m[`req_${idx + 1}`]) || 0), 0)
-                                        : 0;
-                                    const teamGrandTotal = teamPhaseTotal + teamReqTotal;
-                                    const teamGrandMax = phaseMax + (uc ? uc.requirements.length * 10 : 0);
+
+                                    let tReqTotal = 0;
+                                    let tReqMax = 0;
+                                    if (uc) {
+                                        tReqMax = uc.requirements.length * 10;
+                                        for (let i = 1; i <= uc.requirements.length; i++) {
+                                            tReqTotal += (Number(m[`req${i}`]) || 0);
+                                        }
+                                    }
+
+                                    const tSubs = submissions.filter(s => s.team_id === team.id || s.team_number === team.team_number);
+                                    const tEvals = tSubs.map(s => evaluationResults[s.id]).filter(Boolean);
+                                    const tAiScore = tEvals.length ? Math.round(tEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / tEvals.length) : 0;
+
+                                    const tNormPhase = Math.round((tPhaseTotal / 60) * 100);
+                                    const tNormReq = tReqMax > 0 ? Math.round((tReqTotal / tReqMax) * 100) : 0;
+                                    const tConsolidated = Math.round((tAiScore + tNormPhase + tNormReq) / 3);
 
                                     return (
-                                        <tr key={team.id} style={{ cursor: 'pointer' }} onClick={() => handleTeamSelect(String(team.id))}>
+                                        <tr key={team.id} style={{
+                                            cursor: 'pointer',
+                                            borderLeft: selectedTeam === String(team.id) ? '4px solid var(--primary)' : 'none',
+                                            background: selectedTeam === String(team.id) ? 'rgba(108, 99, 255, 0.05)' : 'transparent'
+                                        }} onClick={() => handleTeamSelect(String(team.id))}>
                                             <td><div style={{ fontWeight: 600 }}>{team.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>#{team.team_number}</div></td>
-                                            <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{uc ? `UC #${uc.id}` : '—'}</td>
-                                            {PHASE_CATEGORIES.map(cat => (
-                                                <td key={cat.key}><div className={`mark-circle ${(m[cat.key] || 0) >= 8 ? 'high' : (m[cat.key] || 0) >= 5 ? 'medium' : 'low'}`} style={{ width: '36px', height: '36px', fontSize: '0.75rem' }}>{m[cat.key] || 0}</div></td>
-                                            ))}
-                                            <td><span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-cyan)' }}>{teamPhaseTotal}</span></td>
-                                            <td><span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-magenta)' }}>{teamReqTotal}</span></td>
-                                            <td><span style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 800, color: teamGrandTotal >= (teamGrandMax * 0.7) ? 'var(--accent-green)' : 'var(--text-primary)' }}>{teamGrandTotal}</span></td>
+                                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-cyan)' }}>{tAiScore}%</td>
+                                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary-light)' }}>{tNormPhase}% <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>({tPhaseTotal}/60)</span></td>
+                                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-magenta)' }}>{tNormReq}% <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>({tReqTotal}/{tReqMax})</span></td>
+                                            <td>
+                                                <span style={{
+                                                    fontFamily: 'var(--font-display)',
+                                                    fontSize: '1.2rem',
+                                                    fontWeight: 800,
+                                                    color: tConsolidated >= 70 ? 'var(--accent-green)' : 'var(--text-primary)'
+                                                }}>
+                                                    {tConsolidated}
+                                                </span>
+                                            </td>
+                                            <td>{mentorMarks[team.id] ? <span className="badge badge-success">Marked</span> : <span className="badge badge-warning">Pending</span>}</td>
                                         </tr>
                                     );
                                 })}

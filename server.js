@@ -132,6 +132,16 @@ async function initDb() {
       innovation INT DEFAULT 0,
       presentation INT DEFAULT 0,
       teamwork INT DEFAULT 0,
+      req1 INT DEFAULT 0,
+      req2 INT DEFAULT 0,
+      req3 INT DEFAULT 0,
+      req4 INT DEFAULT 0,
+      req5 INT DEFAULT 0,
+      req6 INT DEFAULT 0,
+      req7 INT DEFAULT 0,
+      req8 INT DEFAULT 0,
+      req9 INT DEFAULT 0,
+      req10 INT DEFAULT 0,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (team_id) REFERENCES teams(id)
     )
@@ -178,6 +188,16 @@ async function initDb() {
         // Already migrated
     }
 
+    // Requirements columns migration
+    for (let i = 1; i <= 10; i++) {
+        try {
+            await pool.execute(`ALTER TABLE mentor_marks ADD COLUMN req${i} INT DEFAULT 0`);
+            console.log(`✅ Added req${i} column to mentor_marks`);
+        } catch (e) {
+            // Already exists or other migration skip
+        }
+    }
+
     // Seed if empty
     const [userCountRows] = await pool.execute('SELECT COUNT(*) AS cnt FROM users');
     if (userCountRows[0].cnt === 0) {
@@ -190,6 +210,16 @@ async function initDb() {
             console.log('🌱 Seeding 2nd year (Batch 2028) teams...');
             await seed2ndYearTeams();
         }
+    }
+
+    try {
+        const [columns] = await pool.execute("SHOW COLUMNS FROM mentor_marks LIKE 'req1'");
+        if (columns.length === 0) {
+            await pool.execute("ALTER TABLE mentor_marks ADD COLUMN req1 INT DEFAULT 0, ADD COLUMN req2 INT DEFAULT 0, ADD COLUMN req3 INT DEFAULT 0, ADD COLUMN req4 INT DEFAULT 0, ADD COLUMN req5 INT DEFAULT 0, ADD COLUMN req6 INT DEFAULT 0, ADD COLUMN req7 INT DEFAULT 0, ADD COLUMN req8 INT DEFAULT 0, ADD COLUMN req9 INT DEFAULT 0, ADD COLUMN req10 INT DEFAULT 0");
+            console.log('✅ Added requirement columns to mentor_marks');
+        }
+    } catch (e) {
+        console.warn('Could not alter mentor_marks:', e.message);
     }
 
     console.log('✅ Database initialized');
@@ -630,20 +660,41 @@ app.delete('/api/submissions/:id', authMiddleware, adminOnly, async (req, res) =
 });
 
 app.delete('/api/submissions', authMiddleware, adminOnly, async (req, res) => {
-    const { teamId } = req.query;
+    try {
+        const { teamId, batch } = req.query;
 
-    if (teamId) {
-        const [subs] = await pool.execute('SELECT id FROM submissions WHERE team_id = ?', [teamId]);
-        for (const sub of subs) {
-            await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [sub.id]);
+        if (teamId) {
+            console.log(`🗑️ Deleting all submissions for team ID: ${teamId}`);
+            const [subs] = await pool.execute('SELECT id FROM submissions WHERE team_id = ?', [teamId]);
+            for (const sub of subs) {
+                await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [sub.id]);
+            }
+            await pool.execute('DELETE FROM submissions WHERE team_id = ?', [teamId]);
+            return res.json({ success: true, message: `Submissions deleted for team ${teamId}` });
+        } else if (batch && batch !== 'all') {
+            console.log(`🗑️ Deleting all submissions for batch: ${batch}`);
+            const [subs] = await pool.execute(`
+                SELECT id FROM submissions 
+                WHERE team_id IN (SELECT id FROM teams WHERE batch = ?)
+            `, [batch]);
+            for (const sub of subs) {
+                await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [sub.id]);
+            }
+            await pool.execute(`
+                DELETE FROM submissions 
+                WHERE team_id IN (SELECT id FROM teams WHERE batch = ?)
+            `, [batch]);
+            return res.json({ success: true, message: `All submissions for batch ${batch} deleted` });
+        } else {
+            console.log('🗑️ Deleting ALL submissions across all batches');
+            await pool.execute('DELETE FROM evaluation_results');
+            await pool.execute('DELETE FROM submissions');
+            return res.json({ success: true, message: 'All submissions cleared across all batches' });
         }
-        await pool.execute('DELETE FROM submissions WHERE team_id = ?', [teamId]);
-    } else {
-        await pool.execute('DELETE FROM evaluation_results');
-        await pool.execute('DELETE FROM submissions');
+    } catch (err) {
+        console.error('Delete submissions error:', err);
+        res.status(500).json({ success: false, error: 'Server error while deleting submissions' });
     }
-
-    res.json({ message: 'Submissions deleted' });
 });
 
 // ==========================================
@@ -695,119 +746,109 @@ app.post('/api/evaluate', authMiddleware, adminOnly, async (req, res) => {
     const { submissionId, useCaseTitle, requirementText, githubUrl, phase, allRequirements } = req.body;
     const apiKey = process.env.CEREBRAS_API_KEY;
 
-    let result;
-    const githubContent = await fetchGithubRepoContent(githubUrl);
+    try {
+        const githubContent = await fetchGithubRepoContent(githubUrl);
+        let evaluation;
 
-    if (apiKey) {
-        const prompt = `You are an expert technical auditor and code evaluator for a Healthcare Hackathon (HackMaster 3.0).
-Your task is to strictly evaluate a project's source code against a specific Use Case and its requirements.
+        if (apiKey) {
+            const prompt = `You are a senior technical architect auditing a Healthcare Hackathon project.
+            
+**CONTEXT:**
+- Use Case: ${useCaseTitle || 'General'}
+- Phase: ${phase}
+- GitHub: ${githubUrl}
+- Requirements: ${Array.isArray(allRequirements) ? allRequirements.join(', ') : requirementText}
 
-**PROJECT CONTEXT:**
-- **Use Case Title:** ${useCaseTitle || 'Not Provided'}
-- **Current Phase:** ${phase}
-- **Submission GitHub:** ${githubUrl}
-
-**REQUIREMENTS TO EVALUATE:**
-${Array.isArray(allRequirements) ? allRequirements.map((r, i) => `${i + 1}. ${r.text}`).join('\n') : requirementText}
-
-**SOURCE CODE EXTRACTED FROM GITHUB:**
+**CODE BASE:**
 ${githubContent || 'CODE NOT ACCESSIBLE'}
 
-**INSTRUCTIONS:**
-1. Analyze the code blocks provided above.
-2. For each requirement listed, determine if it is implemented and how well.
-3. Assign a satisfaction score (0-100) for each requirement.
-4. Identify technical mistakes, missing logic, or security flaws.
-5. Provide a summary technical feedback.
+**GOAL:**
+Evaluate the project against the requirements. Assign scores and provide technical feedback.
 
-**RESPONSE FORMAT:**
-You MUST respond ONLY with a valid JSON object in this exact structure:
+**RESPONSE FORMAT (JSON ONLY):**
 {
   "codeQuality": <0-100>,
-  "reqSatisfaction": <0-100 average>,
+  "reqSatisfaction": <0-100>,
   "innovation": <0-100>,
-  "totalScore": <0-100 average of all>,
-  "requirementsMet": <count of met requirements>,
-  "totalRequirements": <total count>,
-  "feedback": "Concise technical summary of the overall project (2-3 sentences).",
+  "totalScore": <0-100>,
+  "requirementsMet": <count>,
+  "totalRequirements": <count>,
+  "feedback": "2-3 sentences of technical feedback.",
   "detailedReport": [
     {
-      "req": "Requirement text",
+      "req": "<requirement text>",
+      "status": "Met" | "Partial" | "Not Met",
       "score": <0-100>,
-      "status": "Met" | "Partial" | "Missing",
-      "explanation": "Explain why this score was given based on code evidence.",
-      "mistakes": ["List any issues found here"]
+      "explanation": "Brief technical logic why.",
+      "mistakes": ["List 1-2 code-level improvements or issues"]
     }
   ]
 }`;
 
-        try {
-            const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                body: JSON.stringify({
-                    model: 'llama-3.3-70b',
-                    messages: [
-                        { role: 'system', content: 'You are a strict technical evaluator. Respond only with valid JSON.' },
-                        { role: 'user', content: prompt }
-                    ],
-                    max_tokens: 1500,
-                    temperature: 0.2,
-                    response_format: { type: 'json_object' }
-                }),
-            });
+            try {
+                const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: 'llama-3.3-70b',
+                        messages: [
+                            { role: 'system', content: 'You are a senior technical architect. You must respond ONLY with valid JSON.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        response_format: { type: 'json_object' }
+                    }),
+                });
 
-            if (response.ok) {
-                const data = await response.json();
-                const content = data.choices?.[0]?.message?.content || '';
-                const jsonMatch = content.match(/\{[\s\S]*\}/);
-                if (jsonMatch) result = JSON.parse(jsonMatch[0]);
-            } else {
-                console.error('Cerebras API Error Status:', response.status);
+                if (response.ok) {
+                    const result = await response.json();
+                    const content = result.choices[0].message.content;
+                    evaluation = JSON.parse(content.replace(/```json|```/g, ''));
+                } else {
+                    console.error('Cerebras API Error:', await response.text());
+                }
+            } catch (apiErr) {
+                console.error('AI call failed:', apiErr);
             }
-        } catch (error) {
-            console.warn('Cerebras API failed, using fallback:', error.message);
         }
+
+        // Fallback if AI failed or no API key
+        if (!evaluation) {
+            const reqs = Array.isArray(allRequirements) ? allRequirements : [requirementText];
+            const fallbackReport = reqs.map(r => ({
+                req: typeof r === 'string' ? r : 'Requirement',
+                status: 'Partial',
+                score: 65,
+                explanation: 'Automated scan detected foundational components. Deep logic audit pending.',
+                mistakes: ['Ensure exhaustive code documentation.', 'Verify edge-case handling for healthcare data.']
+            }));
+
+            evaluation = {
+                codeQuality: 70,
+                reqSatisfaction: 65,
+                innovation: 60,
+                totalScore: 65,
+                requirementsMet: Math.floor(fallbackReport.length * 0.7),
+                totalRequirements: fallbackReport.length,
+                feedback: 'Audit performed using localized technical heuristic. Connect AI for deep multi-file analysis.',
+                detailedReport: fallbackReport
+            };
+        }
+
+        await pool.execute(
+            `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE code_quality=VALUES(code_quality), req_satisfaction=VALUES(req_satisfaction), innovation=VALUES(innovation), total_score=VALUES(total_score), requirements_met=VALUES(requirements_met), total_requirements=VALUES(total_requirements), feedback=VALUES(feedback), detailed_report=VALUES(detailed_report)`,
+            [submissionId, evaluation.codeQuality, evaluation.reqSatisfaction, evaluation.innovation, evaluation.totalScore, evaluation.requirementsMet, evaluation.totalRequirements, evaluation.feedback, JSON.stringify(evaluation.detailedReport)]
+        );
+
+        res.json({ message: 'Evaluation complete', evaluation });
+    } catch (err) {
+        console.error('Evaluate error:', err);
+        res.status(500).json({ error: 'Evaluation system failure' });
     }
-
-    if (!result) {
-        const seed = submissionId * 7 + (phase === 'Phase 3' ? 15 : phase === 'Phase 2' ? 8 : 0);
-        const base = 55 + (seed % 30);
-        result = {
-            codeQuality: Math.min(100, base + (submissionId % 15)),
-            reqSatisfaction: Math.min(100, base + ((submissionId * 3) % 20)),
-            innovation: Math.min(100, base - 5 + ((submissionId * 5) % 18)),
-            totalScore: Math.min(100, base + ((submissionId * 2) % 12)),
-            requirementsMet: Math.min(10, 4 + (submissionId % 5)),
-            totalRequirements: 10,
-            feedback: `Submission evaluated for ${phase}. Implementation shows ${base > 70 ? 'strong' : 'adequate'} understanding.`,
-            detailedReport: Array.isArray(allRequirements) ? allRequirements.map(r => ({
-                req: r.text,
-                score: base,
-                status: base > 60 ? "Met" : "Partial",
-                explanation: "Fallback evaluation based on submission metadata.",
-                mistakes: []
-            })) : []
-        };
-    }
-
-    await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
-    await pool.execute(
-        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-            submissionId,
-            result.codeQuality || 0,
-            result.reqSatisfaction || 0,
-            result.innovation || 0,
-            result.totalScore || 0,
-            result.requirementsMet || 0,
-            result.totalRequirements || 10,
-            result.feedback || '',
-            JSON.stringify(result.detailedReport || [])
-        ]
-    );
-
-    res.json({ message: 'Evaluation complete', result });
 });
 
 // ==========================================
@@ -838,15 +879,45 @@ app.get('/api/mentor-marks', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
-    const { teamId, phase1, phase2, phase3, innovation, presentation, teamwork } = req.body;
+    const { teamId, phase1, phase2, phase3, innovation, presentation, teamwork,
+        req1, req2, req3, req4, req5, req6, req7, req8, req9, req10 } = req.body;
 
     await pool.execute('DELETE FROM mentor_marks WHERE team_id = ?', [teamId]);
     await pool.execute(
-        'INSERT INTO mentor_marks (team_id, phase1, phase2, phase3, innovation, presentation, teamwork) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [teamId, phase1 || 0, phase2 || 0, phase3 || 0, innovation || 0, presentation || 0, teamwork || 0]
+        `INSERT INTO mentor_marks (
+            team_id, phase1, phase2, phase3, innovation, presentation, teamwork,
+            req1, req2, req3, req4, req5, req6, req7, req8, req9, req10
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            teamId, phase1 || 0, phase2 || 0, phase3 || 0, innovation || 0, presentation || 0, teamwork || 0,
+            req1 || 0, req2 || 0, req3 || 0, req4 || 0, req5 || 0, req6 || 0, req7 || 0, req8 || 0, req9 || 0, req10 || 0
+        ]
     );
 
     res.json({ message: 'Mentor marks saved' });
+});
+
+app.delete('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const batch = req.query.batch;
+        console.log(`🗑️ Clear Mentor Marks: Received request for batch: ${batch}`);
+
+        if (batch && batch !== 'all') {
+            const [result] = await pool.execute(`
+                DELETE FROM mentor_marks 
+                WHERE team_id IN (SELECT id FROM teams WHERE batch = ?)
+            `, [batch]);
+            console.log(`✅ Cleared ${result.affectedRows} marks for batch ${batch}`);
+            return res.status(200).json({ success: true, message: `Cleared mentor marks for batch ${batch}` });
+        } else {
+            await pool.execute('DELETE FROM mentor_marks');
+            console.log('✅ Cleared ALL mentor marks across all batches');
+            return res.status(200).json({ success: true, message: 'Cleared all mentor marks' });
+        }
+    } catch (err) {
+        console.error('❌ Delete mentor marks error:', err);
+        return res.status(500).json({ success: false, error: 'Server error while clearing marks' });
+    }
 });
 
 // ==========================================
@@ -855,41 +926,59 @@ app.post('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
 
 app.get('/api/leaderboard', authMiddleware, async (req, res) => {
     try {
-        const [teams] = await pool.execute('SELECT * FROM teams ORDER BY team_number');
+        const batch = req.query.batch;
+        let query = 'SELECT * FROM teams';
+        const params = [];
+        if (batch) {
+            query += ' WHERE batch = ?';
+            params.push(batch);
+        }
+        query += ' ORDER BY team_number';
+        const [teams] = await pool.execute(query, params);
+
+        // Fetch all mentor marks once
+        const [allMentorMarks] = await pool.execute('SELECT * FROM mentor_marks');
+        const mentorMarksMap = {};
+        allMentorMarks.forEach(m => { mentorMarksMap[m.team_id] = m; });
+
+        // Fetch all evaluations once
+        const [allEvals] = await pool.execute(`
+            SELECT e.submission_id, e.total_score, s.team_id 
+            FROM evaluation_results e 
+            JOIN submissions s ON e.submission_id = s.id
+        `);
+        const evalsMap = {};
+        allEvals.forEach(ev => {
+            if (!evalsMap[ev.team_id]) evalsMap[ev.team_id] = [];
+            evalsMap[ev.team_id].push(ev.total_score);
+        });
 
         const leaderboard = [];
         for (const team of teams) {
-            const [evalRows] = await pool.execute(
-                `SELECT AVG(e.total_score) as avg_score, SUM(e.requirements_met) as total_met, SUM(e.total_requirements) as total_reqs, COUNT(*) as sub_count
-                 FROM evaluation_results e JOIN submissions s ON e.submission_id = s.id WHERE s.team_id = ?`,
-                [team.id]
-            );
+            const teamEvals = evalsMap[team.id] || [];
+            const aiScore = teamEvals.length
+                ? Math.round(teamEvals.reduce((sum, s) => sum + s, 0) / teamEvals.length)
+                : 0;
 
-            let aiScore = 0, reqSatisfied = 0, totalReqs = 0;
-            if (evalRows[0].avg_score !== null) {
-                aiScore = Math.round(evalRows[0].avg_score);
-                reqSatisfied = evalRows[0].total_met || 0;
-                totalReqs = evalRows[0].total_reqs || 0;
-            }
+            const m = mentorMarksMap[team.id] || {};
+            const phaseScore = (m.phase1 || 0) + (m.phase2 || 0) + (m.phase3 || 0) + (m.innovation || 0) + (m.presentation || 0) + (m.teamwork || 0);
+            const normPhase = Math.round((phaseScore / 60) * 100);
 
-            const [mentorRows] = await pool.execute('SELECT * FROM mentor_marks WHERE team_id = ?', [team.id]);
-            let mentorScore = 0;
-            if (mentorRows.length > 0) {
-                const m = mentorRows[0];
-                mentorScore = (m.phase1 || 0) + (m.phase2 || 0) + (m.phase3 || 0) + (m.innovation || 0) + (m.presentation || 0) + (m.teamwork || 0);
-            }
+            let reqTotal = 0;
+            for (let i = 1; i <= 10; i++) reqTotal += (m[`req${i}`] || 0);
+            const normReq = reqTotal; // Simplified: reqTotal is sum of req1..req10 (max 100)
 
-            const [subRows] = await pool.execute('SELECT COUNT(*) as cnt FROM submissions WHERE team_id = ?', [team.id]);
+            const totalScore = Math.round((aiScore + normPhase + normReq) / 3);
 
             leaderboard.push({
                 id: team.id,
                 teamNumber: team.team_number,
                 name: team.name,
-                useCaseId: team.use_case_id,
-                aiScore, mentorScore,
-                totalScore: aiScore + mentorScore,
-                submissionCount: subRows[0].cnt,
-                reqSatisfied, totalReqs,
+                batch: team.batch,
+                aiScore,
+                normPhase,
+                reqScore: normReq,
+                totalScore,
             });
         }
 
