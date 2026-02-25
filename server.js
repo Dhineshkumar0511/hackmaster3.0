@@ -380,7 +380,8 @@ function adminOnly(req, res, next) {
 
 /**
  * Fetches code content from a GitHub URL using the GitHub API.
- * Returns a concatenated string of the most relevant code files.
+ * DEEP recursive scan — fetches ALL files from ALL subdirectories.
+ * Returns a concatenated string of the most relevant code files + full file tree.
  */
 async function fetchGithubRepoContent(githubUrl) {
     try {
@@ -391,7 +392,6 @@ async function fetchGithubRepoContent(githubUrl) {
 
         if (!owner || !repo) return null;
 
-        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents`;
         const headers = {
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'HackMaster-3.0-Evaluator'
@@ -402,32 +402,103 @@ async function fetchGithubRepoContent(githubUrl) {
             headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
         }
 
-        const response = await fetch(apiUrl, { headers });
-        if (!response.ok) return `Error fetching repo: ${response.statusText}`;
+        // Relevant code extensions to read content from
+        const codeExtensions = ['.js', '.jsx', '.py', '.html', '.css', '.sql', '.txt', '.md', '.tsx', '.ts', '.json', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.java', '.cpp', '.c', '.h', '.go', '.rs', '.rb', '.php', '.ipynb', '.r', '.scala', '.sh', '.bat'];
+        // Files to skip even if extension matches
+        const skipFiles = ['package-lock.json', 'yarn.lock', '.gitignore', '.eslintrc.json', 'tsconfig.json'];
+        // Directories to skip
+        const skipDirs = ['node_modules', '.git', '__pycache__', '.next', 'dist', 'build', '.vscode', '.idea', 'venv', 'env', '.env'];
 
-        const files = await response.json();
-        let codeContext = '';
-        let fileCount = 0;
+        let allFiles = [];
+        let fileTree = [];
 
-        // Relevant extensions to read
-        const extensions = ['.js', '.jsx', '.py', '.html', '.css', '.sql', '.txt', '.md', '.tsx', '.ts'];
+        // Recursive function to fetch directory contents
+        async function fetchDir(dirPath) {
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${dirPath}`;
+            try {
+                const response = await fetch(apiUrl, { headers });
+                if (!response.ok) return;
 
-        for (const file of files) {
-            if (fileCount >= 10) break; // Limit to 10 files
-            if (file.type === 'file' && extensions.some(ext => file.name.endsWith(ext))) {
-                const fileRes = await fetch(file.download_url);
-                if (fileRes.ok) {
-                    const content = await fileRes.text();
-                    codeContext += `\n\n--- FILE: ${file.path} ---\n${content.substring(0, 3000)}`; // Max 3k chars per file
-                    fileCount++;
+                const items = await response.json();
+                if (!Array.isArray(items)) return;
+
+                for (const item of items) {
+                    if (item.type === 'dir') {
+                        // Skip excluded directories
+                        if (skipDirs.includes(item.name)) continue;
+                        fileTree.push(`📁 ${item.path}/`);
+                        await fetchDir(item.path);
+                    } else if (item.type === 'file') {
+                        fileTree.push(`📄 ${item.path} (${item.size} bytes)`);
+                        // Check if it's a relevant code file
+                        if (skipFiles.includes(item.name)) continue;
+                        if (codeExtensions.some(ext => item.name.toLowerCase().endsWith(ext))) {
+                            allFiles.push(item);
+                        }
+                    }
                 }
+            } catch (err) {
+                console.error(`Error fetching dir ${dirPath}:`, err.message);
             }
         }
 
-        return codeContext || 'No relevant code files found in the root directory.';
+        // Start recursive scan from root
+        await fetchDir('');
+
+        // Sort files: prioritize main code files (app, index, main, server, etc.)
+        const priorityNames = ['app', 'main', 'index', 'server', 'routes', 'model', 'view', 'controller', 'service', 'utils', 'helper', 'config', 'database', 'schema'];
+        allFiles.sort((a, b) => {
+            const aName = a.name.toLowerCase();
+            const bName = b.name.toLowerCase();
+            const aPriority = priorityNames.some(p => aName.includes(p)) ? 0 : 1;
+            const bPriority = priorityNames.some(p => bName.includes(p)) ? 0 : 1;
+            if (aPriority !== bPriority) return aPriority - bPriority;
+            // Prefer .py, .js, .jsx, .ts, .tsx over others
+            const codeFirst = ['.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rs'];
+            const aCode = codeFirst.some(ext => aName.endsWith(ext)) ? 0 : 1;
+            const bCode = codeFirst.some(ext => bName.endsWith(ext)) ? 0 : 1;
+            return aCode - bCode;
+        });
+
+        // Fetch content of up to 30 most relevant files
+        let codeContext = '';
+        let fileCount = 0;
+        const MAX_FILES = 30;
+        const MAX_CHARS_PER_FILE = 5000;
+
+        for (const file of allFiles) {
+            if (fileCount >= MAX_FILES) break;
+            if (!file.download_url) continue;
+
+            try {
+                const fileRes = await fetch(file.download_url);
+                if (fileRes.ok) {
+                    const content = await fileRes.text();
+                    if (content.trim().length > 0) {
+                        codeContext += `\n\n========== FILE: ${file.path} (${file.size} bytes) ==========\n${content.substring(0, MAX_CHARS_PER_FILE)}`;
+                        if (content.length > MAX_CHARS_PER_FILE) {
+                            codeContext += `\n... [TRUNCATED — file has ${content.length} total characters]`;
+                        }
+                        fileCount++;
+                    }
+                }
+            } catch (err) {
+                // Skip files that can't be fetched
+            }
+        }
+
+        // Build complete result with file tree + code
+        const treeStr = fileTree.length > 0 ? `\n📂 FULL REPOSITORY FILE TREE (${fileTree.length} items):\n${fileTree.join('\n')}\n` : '';
+        const summary = `\n📊 REPO STATS: ${fileTree.length} total items found, ${allFiles.length} code files identified, ${fileCount} files analyzed\n`;
+
+        if (fileCount === 0) {
+            return `${treeStr}${summary}\n⚠️ NO RELEVANT CODE FILES FOUND IN THIS REPOSITORY. The repository may be empty, contain only binary files, or use unsupported file formats.`;
+        }
+
+        return `${treeStr}${summary}${codeContext}`;
     } catch (error) {
         console.error('GitHub fetch error:', error);
-        return null;
+        return `ERROR: Failed to fetch repository content. Error: ${error.message}. The repository may be private, deleted, or the URL may be incorrect.`;
     }
 }
 
@@ -637,8 +708,11 @@ app.post('/api/submissions', authMiddleware, async (req, res) => {
     }
 
     try {
-        const [teamRows] = await pool.execute('SELECT id, team_number, name FROM teams WHERE team_number = ?', [req.user.teamNumber]);
-        if (teamRows.length === 0) return res.status(404).json({ error: 'Team not found' });
+        // IMPORTANT: Filter by BOTH team_number AND batch to avoid cross-batch mismatches
+        // Both 2nd year and 3rd year have team_numbers 1-28, so batch is required
+        const userBatch = req.user.batch || '2027';
+        const [teamRows] = await pool.execute('SELECT id, team_number, name, batch FROM teams WHERE team_number = ? AND batch = ?', [req.user.teamNumber, userBatch]);
+        if (teamRows.length === 0) return res.status(404).json({ error: 'Team not found for your batch' });
 
         const team = teamRows[0];
         const [result] = await pool.execute(
@@ -750,37 +824,64 @@ app.post('/api/evaluate', authMiddleware, adminOnly, async (req, res) => {
         const githubContent = await fetchGithubRepoContent(githubUrl);
         let evaluation;
 
+        // Build the requirements list
+        const reqsList = Array.isArray(allRequirements) ? allRequirements : [requirementText];
+        const reqsFormatted = reqsList.map((r, i) => `  R${i + 1}: ${typeof r === 'string' ? r : 'Requirement'}`).join('\n');
+
         if (apiKey) {
-            const prompt = `You are a senior technical architect auditing a Healthcare Hackathon project.
-            
-**CONTEXT:**
-- Use Case: ${useCaseTitle || 'General'}
-- Phase: ${phase}
-- GitHub: ${githubUrl}
-- Requirements: ${Array.isArray(allRequirements) ? allRequirements.join(', ') : requirementText}
+            const prompt = `You are a STRICT senior technical architect auditing a hackathon project submission.
 
-**CODE BASE:**
-${githubContent || 'CODE NOT ACCESSIBLE'}
+**CRITICAL INSTRUCTION — RELEVANCE CHECK FIRST:**
+Before scoring, you MUST determine if the submitted code is ACTUALLY RELEVANT to the assigned use case.
+- If the code is for a COMPLETELY DIFFERENT project (e.g., a todo app submitted for a healthcare AI use case, or a portfolio website submitted for drug interaction checker), ALL scores MUST be 0-10.
+- Do NOT give credit just because code exists. The code must specifically implement the assigned use case requirements.
+- Be STRICT: generic code, boilerplate, or unrelated projects score NEAR ZERO.
 
-**GOAL:**
-Evaluate the project against the requirements. Assign scores and provide technical feedback.
+**ASSIGNED USE CASE:** ${useCaseTitle || 'Unknown'}
 
-**RESPONSE FORMAT (JSON ONLY):**
+**ASSIGNED REQUIREMENTS:**
+${reqsFormatted}
+
+**PHASE:** ${phase}
+
+**SUBMITTED GITHUB URL:** ${githubUrl}
+
+**REPOSITORY CODE (extracted from GitHub):**
+${githubContent || 'CODE NOT ACCESSIBLE — Score should be 0 since no code could be fetched.'}
+
+**EVALUATION STEPS:**
+1. FIRST: Read through the file tree and code. Determine what this project actually does.
+2. SECOND: Compare what the project does with the assigned use case "${useCaseTitle}". Is this code actually implementing this use case?
+3. THIRD: If the code is NOT relevant to the use case, set all scores to 0-10 and mark all requirements as "Not Met".
+4. FOURTH: If the code IS relevant, evaluate each requirement by looking for specific code implementations.
+5. FIFTH: Only give "Met" status if you find actual working code that implements that requirement. Not just configuration or boilerplate.
+
+**SCORING GUIDELINES:**
+- 0-10: Code is unrelated to the use case / repository is empty or inaccessible
+- 11-30: Code barely touches the use case domain, mostly boilerplate
+- 31-50: Some relevant code exists but most requirements are not implemented
+- 51-70: Moderate implementation, several requirements partially met
+- 71-85: Good implementation, most requirements met with working code
+- 86-100: Excellent implementation with innovation and thorough coverage
+
+**RESPONSE FORMAT (JSON ONLY, no markdown):**
 {
+  "isRelevant": true/false,
+  "projectDescription": "What this code actually does in 1-2 sentences",
   "codeQuality": <0-100>,
   "reqSatisfaction": <0-100>,
   "innovation": <0-100>,
   "totalScore": <0-100>,
-  "requirementsMet": <count>,
-  "totalRequirements": <count>,
-  "feedback": "2-3 sentences of technical feedback.",
+  "requirementsMet": <count of requirements with status Met>,
+  "totalRequirements": ${reqsList.length},
+  "feedback": "3-5 sentences explaining: what the code does, whether it matches the use case, and specific technical feedback.",
   "detailedReport": [
     {
       "req": "<requirement text>",
       "status": "Met" | "Partial" | "Not Met",
       "score": <0-100>,
-      "explanation": "Brief technical logic why.",
-      "mistakes": ["List 1-2 code-level improvements or issues"]
+      "explanation": "Specific technical evidence from the code. Reference actual file names and functions found.",
+      "mistakes": ["Specific code-level issues or missing implementations"]
     }
   ]
 }`;
@@ -795,7 +896,7 @@ Evaluate the project against the requirements. Assign scores and provide technic
                     body: JSON.stringify({
                         model: 'llama-3.3-70b',
                         messages: [
-                            { role: 'system', content: 'You are a senior technical architect. You must respond ONLY with valid JSON.' },
+                            { role: 'system', content: 'You are a STRICT senior technical architect. You must respond ONLY with valid JSON. You are evaluating hackathon submissions. Be extremely strict about relevance — if the submitted code does not match the assigned use case, give near-zero scores. Do not be generous with unrelated code.' },
                             { role: 'user', content: prompt }
                         ],
                         response_format: { type: 'json_object' }
@@ -806,6 +907,23 @@ Evaluate the project against the requirements. Assign scores and provide technic
                     const result = await response.json();
                     const content = result.choices[0].message.content;
                     evaluation = JSON.parse(content.replace(/```json|```/g, ''));
+
+                    // Validate and clamp scores
+                    evaluation.codeQuality = Math.max(0, Math.min(100, evaluation.codeQuality || 0));
+                    evaluation.reqSatisfaction = Math.max(0, Math.min(100, evaluation.reqSatisfaction || 0));
+                    evaluation.innovation = Math.max(0, Math.min(100, evaluation.innovation || 0));
+                    evaluation.totalScore = Math.max(0, Math.min(100, evaluation.totalScore || 0));
+                    evaluation.requirementsMet = Math.max(0, Math.min(reqsList.length, evaluation.requirementsMet || 0));
+                    evaluation.totalRequirements = reqsList.length;
+
+                    // If AI says not relevant but gave high scores, override
+                    if (evaluation.isRelevant === false && evaluation.totalScore > 15) {
+                        evaluation.totalScore = Math.min(evaluation.totalScore, 10);
+                        evaluation.codeQuality = Math.min(evaluation.codeQuality, 15);
+                        evaluation.reqSatisfaction = Math.min(evaluation.reqSatisfaction, 5);
+                        evaluation.innovation = Math.min(evaluation.innovation, 10);
+                        evaluation.requirementsMet = 0;
+                    }
                 } else {
                     console.error('Cerebras API Error:', await response.text());
                 }
@@ -814,28 +932,136 @@ Evaluate the project against the requirements. Assign scores and provide technic
             }
         }
 
-        // Fallback if AI failed or no API key
+        // Smart fallback if AI failed or no API key — analyze code content for relevance
         if (!evaluation) {
-            const reqs = Array.isArray(allRequirements) ? allRequirements : [requirementText];
-            const fallbackReport = reqs.map(r => ({
-                req: typeof r === 'string' ? r : 'Requirement',
-                status: 'Partial',
-                score: 65,
-                explanation: 'Automated scan detected foundational components. Deep logic audit pending.',
-                mistakes: ['Ensure exhaustive code documentation.', 'Verify edge-case handling for healthcare data.']
-            }));
+            const codeStr = (githubContent || '').toLowerCase();
+            const useCaseStr = (useCaseTitle || '').toLowerCase();
+
+            // Check if code was actually fetched
+            const hasCode = codeStr.length > 200 && !codeStr.includes('no relevant code files found') && !codeStr.includes('error:') && !codeStr.includes('code not accessible');
+
+            // Build keyword list from use case title and requirements
+            const keywords = [];
+            if (useCaseTitle) {
+                // Split use case title into meaningful keywords
+                const titleWords = useCaseTitle.toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 3 && !['with', 'based', 'system', 'platform', 'using', 'powered'].includes(w));
+                keywords.push(...titleWords);
+            }
+
+            // Extract keywords from requirements
+            for (const req of reqsList) {
+                if (typeof req === 'string') {
+                    const reqWords = req.toLowerCase()
+                        .replace(/[^a-z0-9\s]/g, ' ')
+                        .split(/\s+/)
+                        .filter(w => w.length > 3 && !['with', 'based', 'system', 'using', 'must', 'should', 'have'].includes(w));
+                    keywords.push(...reqWords);
+                }
+            }
+
+            // Deduplicate keywords
+            const uniqueKeywords = [...new Set(keywords)];
+
+            // Count how many keywords appear in the code
+            let keywordMatches = 0;
+            const matchedKeywords = [];
+            const unmatchedKeywords = [];
+
+            for (const kw of uniqueKeywords) {
+                if (codeStr.includes(kw)) {
+                    keywordMatches++;
+                    matchedKeywords.push(kw);
+                } else {
+                    unmatchedKeywords.push(kw);
+                }
+            }
+
+            const relevanceRatio = uniqueKeywords.length > 0 ? keywordMatches / uniqueKeywords.length : 0;
+
+            // Check for each requirement
+            const fallbackReport = reqsList.map(r => {
+                const reqStr = (typeof r === 'string' ? r : 'Requirement').toLowerCase();
+                const reqKeywords = reqStr.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3);
+                const reqMatches = reqKeywords.filter(w => codeStr.includes(w)).length;
+                const reqRelevance = reqKeywords.length > 0 ? reqMatches / reqKeywords.length : 0;
+
+                let status, score, explanation;
+
+                if (!hasCode) {
+                    status = 'Not Met';
+                    score = 0;
+                    explanation = 'No code could be fetched from the repository. Repository might be empty, private, or URL is invalid.';
+                } else if (reqRelevance >= 0.6) {
+                    status = 'Partial';
+                    score = Math.floor(reqRelevance * 50); // Max 50 without AI verification
+                    explanation = `Keywords found in code: ${reqKeywords.filter(w => codeStr.includes(w)).join(', ')}. Manual or AI verification needed for full assessment.`;
+                } else if (reqRelevance >= 0.3) {
+                    status = 'Partial';
+                    score = Math.floor(reqRelevance * 30);
+                    explanation = `Limited relevance detected. Some keywords present but insufficient evidence of implementation.`;
+                } else {
+                    status = 'Not Met';
+                    score = Math.floor(reqRelevance * 15);
+                    explanation = `No evidence of this requirement in the codebase. Keywords not found: ${reqKeywords.slice(0, 5).join(', ')}.`;
+                }
+
+                return {
+                    req: typeof r === 'string' ? r : 'Requirement',
+                    status,
+                    score,
+                    explanation,
+                    mistakes: hasCode
+                        ? [`Requirement keywords not detected in code — may not be implemented`, `AI API unavailable for deep analysis — keyword-based scan only`]
+                        : [`Repository content could not be accessed`, `Verify the GitHub URL is correct and the repository is public`]
+                };
+            });
+
+            const metCount = fallbackReport.filter(r => r.status === 'Met').length;
+            const avgReqScore = fallbackReport.reduce((s, r) => s + r.score, 0) / fallbackReport.length;
+
+            let overallScore, codeQuality, reqSatisfaction, innovationScore, feedbackMsg;
+
+            if (!hasCode) {
+                overallScore = 0;
+                codeQuality = 0;
+                reqSatisfaction = 0;
+                innovationScore = 0;
+                feedbackMsg = '❌ FAILED: Could not fetch any code from the submitted GitHub URL. The repository may be empty, private, or the URL is incorrect. Score: 0.';
+            } else if (relevanceRatio < 0.15) {
+                overallScore = Math.floor(relevanceRatio * 50); // Max ~7 for irrelevant repos
+                codeQuality = Math.floor(relevanceRatio * 40);
+                reqSatisfaction = Math.floor(relevanceRatio * 30);
+                innovationScore = 0;
+                feedbackMsg = `❌ LOW RELEVANCE: The submitted code appears to be UNRELATED to the use case "${useCaseTitle}". Only ${Math.round(relevanceRatio * 100)}% keyword match found. This appears to be a different project. Keywords not found: ${unmatchedKeywords.slice(0, 10).join(', ')}.`;
+            } else if (relevanceRatio < 0.35) {
+                overallScore = Math.floor(relevanceRatio * 60);
+                codeQuality = Math.floor(relevanceRatio * 50);
+                reqSatisfaction = Math.floor(avgReqScore);
+                innovationScore = Math.floor(relevanceRatio * 30);
+                feedbackMsg = `⚠️ LOW MATCH: Only ${Math.round(relevanceRatio * 100)}% of use case keywords found in code. Matched: ${matchedKeywords.slice(0, 8).join(', ')}. Missing: ${unmatchedKeywords.slice(0, 8).join(', ')}. AI API unavailable for deep analysis.`;
+            } else {
+                overallScore = Math.min(50, Math.floor(relevanceRatio * 65)); // Cap at 50 without AI
+                codeQuality = Math.min(55, Math.floor(relevanceRatio * 60));
+                reqSatisfaction = Math.min(50, Math.floor(avgReqScore));
+                innovationScore = Math.min(40, Math.floor(relevanceRatio * 45));
+                feedbackMsg = `⚠️ KEYWORD SCAN ONLY (AI unavailable): ${Math.round(relevanceRatio * 100)}% keyword relevance detected. Matched: ${matchedKeywords.slice(0, 10).join(', ')}. Scores capped at 50% without AI deep analysis. Connect Cerebras API for accurate evaluation.`;
+            }
 
             evaluation = {
-                codeQuality: 70,
-                reqSatisfaction: 65,
-                innovation: 60,
-                totalScore: 65,
-                requirementsMet: Math.floor(fallbackReport.length * 0.7),
+                codeQuality,
+                reqSatisfaction,
+                innovation: innovationScore,
+                totalScore: overallScore,
+                requirementsMet: metCount,
                 totalRequirements: fallbackReport.length,
-                feedback: 'Audit performed using localized technical heuristic. Connect AI for deep multi-file analysis.',
+                feedback: feedbackMsg,
                 detailedReport: fallbackReport
             };
         }
+
 
         await pool.execute(
             `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report)
