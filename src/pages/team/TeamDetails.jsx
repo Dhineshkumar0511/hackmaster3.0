@@ -129,16 +129,22 @@ export default function TeamDetails() {
 
             <div className="glass-card section-card">
                 <h3>🎓 Mentor Details</h3>
-                {hasSavedData && !isEditing && displayMentor ? (
-                    <div className="glass-card team-member-card" style={{ maxWidth: '400px' }}>
-                        <div className="member-avatar" style={{ background: 'linear-gradient(135deg, #00F5A0, #00D9F5)' }}>{displayMentor.name[0]}</div>
-                        <div className="member-info">
-                            <h4>{displayMentor.name}</h4>
-                            <p>{displayMentor.department}</p>
-                            <p>{displayMentor.email}</p>
-                            <p>{displayMentor.phone}</p>
+                {hasSavedData && !isEditing ? (
+                    displayMentor ? (
+                        <div className="glass-card team-member-card" style={{ maxWidth: '400px' }}>
+                            <div className="member-avatar" style={{ background: 'linear-gradient(135deg, #00F5A0, #00D9F5)' }}>{displayMentor.name[0]}</div>
+                            <div className="member-info">
+                                <h4>{displayMentor.name}</h4>
+                                <p>{displayMentor.department}</p>
+                                <p>{displayMentor.email}</p>
+                                <p>{displayMentor.phone}</p>
+                            </div>
                         </div>
-                    </div>
+                    ) : (
+                        <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: 'var(--space-md)' }}>
+                            No mentor details provided. Click Edit to add.
+                        </div>
+                    )
                 ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-md)' }}>
                         <div className="form-group"><label className="form-label">Mentor Name</label><input className="form-input" placeholder="Prof. Name" value={formData.mentor.name} onChange={e => handleMentorChange('name', e.target.value)} /></div>
