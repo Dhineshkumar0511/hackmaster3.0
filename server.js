@@ -499,6 +499,17 @@ app.put('/api/teams/:id/usecase', authMiddleware, adminOnly, async (req, res) =>
     res.json({ message: 'Use case assigned' });
 });
 
+// Admin: Clear team registration (members + mentor)
+app.delete('/api/teams/:id/registration', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        await pool.execute("UPDATE teams SET members = '[]', mentor = '{}' WHERE id = ?", [req.params.id]);
+        res.json({ message: 'Team registration cleared' });
+    } catch (err) {
+        console.error('Clear registration error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // ==========================================
 // SUBMISSION ROUTES
 // ==========================================

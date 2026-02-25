@@ -217,6 +217,16 @@ function App() {
         }
     };
 
+    const clearTeamRegistration = async (teamId) => {
+        try {
+            await apiFetch(`/teams/${teamId}/registration`, { method: 'DELETE' });
+            showToast('Team registration cleared!', 'success');
+            fetchTeams();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    };
+
     // ---- Submissions ----
     const addSubmission = async (subData) => {
         try {
@@ -364,6 +374,7 @@ function App() {
         fetchEvaluations,
         updateTeamDetails,
         assignUseCase,
+        clearTeamRegistration,
         addSubmission,
         deleteSubmission,
         deleteAllSubmissions,

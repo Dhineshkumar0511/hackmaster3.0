@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminTeamDetails() {
-    const { teams, allUseCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
+    const { teams, allUseCases, batches, selectedBatch, setSelectedBatch, clearTeamRegistration, showToast } = useAppContext();
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedTeam, setExpandedTeam] = useState(null);
+    const [confirmClear, setConfirmClear] = useState(null);
 
     const allUCs = [...(allUseCases['2027'] || []), ...(allUseCases['2028'] || [])];
 
@@ -12,6 +13,11 @@ export default function AdminTeamDetails() {
         t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(t.team_number).includes(searchTerm)
     );
+
+    const handleClearRegistration = async (teamId, teamName) => {
+        await clearTeamRegistration(teamId);
+        setConfirmClear(null);
+    };
 
     return (
         <div>
@@ -41,6 +47,7 @@ export default function AdminTeamDetails() {
                 {filteredTeams.map(team => {
                     const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
                     const isExpanded = expandedTeam === team.id;
+                    const hasRegistration = team.members?.length > 0 && team.members.some(m => m.name);
 
                     return (
                         <div key={team.id} className="glass-card" style={{ padding: 'var(--space-xl)', cursor: 'pointer' }} onClick={() => setExpandedTeam(isExpanded ? null : team.id)}>
@@ -53,7 +60,7 @@ export default function AdminTeamDetails() {
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
-                                    {team.members?.length > 0 ? <span className="badge badge-success">✅ Registered</span> : <span className="badge badge-warning">⏳ Pending</span>}
+                                    {hasRegistration ? <span className="badge badge-success">✅ Registered</span> : <span className="badge badge-warning">⏳ Pending</span>}
                                     <span style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.3s', fontSize: '1.2rem' }}>▼</span>
                                 </div>
                             </div>
@@ -67,9 +74,29 @@ export default function AdminTeamDetails() {
                                         </div>
                                     )}
 
-                                    {team.members?.length > 0 ? (
+                                    {hasRegistration ? (
                                         <>
-                                            <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 'var(--space-md)', color: 'var(--text-secondary)' }}>👥 Team Members</h4>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+                                                <h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>👥 Team Members</h4>
+                                                {confirmClear === team.id ? (
+                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                                                        <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)' }}>Clear all data?</span>
+                                                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleClearRegistration(team.id, team.name); }}
+                                                            style={{ background: 'var(--accent-red)', color: '#fff', fontSize: '0.7rem', padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer' }}>
+                                                            ✓ Yes, Clear
+                                                        </button>
+                                                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setConfirmClear(null); }}
+                                                            style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--text-secondary)', fontSize: '0.7rem', padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer' }}>
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={(e) => { e.stopPropagation(); setConfirmClear(team.id); }}
+                                                        style={{ background: 'rgba(255, 61, 113, 0.1)', color: 'var(--accent-red)', fontSize: '0.7rem', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255, 61, 113, 0.3)', cursor: 'pointer', fontWeight: 600 }}>
+                                                        🗑️ Clear Registration
+                                                    </button>
+                                                )}
+                                            </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)' }}>
                                                 {team.members.map((member, idx) => (
                                                     <div key={idx} style={{ padding: 'var(--space-md)', background: 'rgba(108, 99, 255, 0.03)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
