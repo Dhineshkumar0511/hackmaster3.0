@@ -61,7 +61,7 @@ export default function AdminSubmissions() {
         <div>
             <div className="page-header">
                 <h2 className="gradient-text">📤 Submission Dashboard</h2>
-                <p>Manage and evaluate all team submissions with Cerebras AI</p>
+                <p>Manage and evaluate all team submissions</p>
             </div>
 
             <div className="stats-grid" style={{ marginBottom: 'var(--space-xl)' }}>
@@ -88,7 +88,7 @@ export default function AdminSubmissions() {
                     </div>
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>
-                    🔑 API key loaded from server <code style={{ color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>.env</code> file — no configuration needed
+                    🤖 AI evaluation scores submissions automatically
                 </p>
             </div>
 

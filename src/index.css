@@ -1289,6 +1289,23 @@ select.form-input::-ms-expand {
   }
 }
 
+/* Login page responsive */
+@media (max-width: 900px) {
+  .login-page {
+    flex-direction: column !important;
+  }
+
+  .login-page>div:nth-child(2) {
+    display: none !important;
+  }
+
+  .login-page>div:last-child {
+    width: 100% !important;
+    min-width: unset !important;
+    padding: var(--space-xl) !important;
+  }
+}
+
 /* ---- Empty State ---- */
 .empty-state {
   text-align: center;
