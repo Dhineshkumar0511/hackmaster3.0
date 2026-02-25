@@ -116,6 +116,7 @@ async function initDb() {
       requirements_met INT DEFAULT 0,
       total_requirements INT DEFAULT 10,
       feedback TEXT,
+      detailed_report LONGTEXT,
       evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (submission_id) REFERENCES submissions(id)
     )
@@ -167,6 +168,12 @@ async function initDb() {
         await pool.execute("ALTER TABLE teams DROP INDEX team_number");
         await pool.execute("ALTER TABLE teams ADD UNIQUE KEY unique_team_batch (team_number, batch)");
         console.log('✅ Updated teams unique constraint for batch');
+    } catch (e) {
+        // Already migrated
+    }
+    try {
+        await pool.execute("ALTER TABLE evaluation_results ADD COLUMN detailed_report LONGTEXT");
+        console.log('✅ Added detailed_report column to evaluation_results');
     } catch (e) {
         // Already migrated
     }
@@ -341,6 +348,59 @@ function adminOnly(req, res, next) {
     next();
 }
 
+/**
+ * Fetches code content from a GitHub URL using the GitHub API.
+ * Returns a concatenated string of the most relevant code files.
+ */
+async function fetchGithubRepoContent(githubUrl) {
+    try {
+        // Extract owner and repo from URL (works for https://github.com/owner/repo)
+        const parts = githubUrl.replace(/\/$/, '').split('/');
+        const repo = parts.pop();
+        const owner = parts.pop();
+
+        if (!owner || !repo) return null;
+
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents`;
+        const headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'HackMaster-3.0-Evaluator'
+        };
+
+        // If you have a GITHUB_TOKEN, add it to .env to avoid rate limits
+        if (process.env.GITHUB_TOKEN) {
+            headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
+        }
+
+        const response = await fetch(apiUrl, { headers });
+        if (!response.ok) return `Error fetching repo: ${response.statusText}`;
+
+        const files = await response.json();
+        let codeContext = '';
+        let fileCount = 0;
+
+        // Relevant extensions to read
+        const extensions = ['.js', '.jsx', '.py', '.html', '.css', '.sql', '.txt', '.md', '.tsx', '.ts'];
+
+        for (const file of files) {
+            if (fileCount >= 10) break; // Limit to 10 files
+            if (file.type === 'file' && extensions.some(ext => file.name.endsWith(ext))) {
+                const fileRes = await fetch(file.download_url);
+                if (fileRes.ok) {
+                    const content = await fileRes.text();
+                    codeContext += `\n\n--- FILE: ${file.path} ---\n${content.substring(0, 3000)}`; // Max 3k chars per file
+                    fileCount++;
+                }
+            }
+        }
+
+        return codeContext || 'No relevant code files found in the root directory.';
+    } catch (error) {
+        console.error('GitHub fetch error:', error);
+        return null;
+    }
+}
+
 // ==========================================
 // AUTH ROUTES
 // ==========================================
@@ -502,8 +562,9 @@ app.put('/api/teams/:id/usecase', authMiddleware, adminOnly, async (req, res) =>
 // Admin: Clear team registration (members + mentor)
 app.delete('/api/teams/:id/registration', authMiddleware, adminOnly, async (req, res) => {
     try {
+        console.log(`🧹 Clearing registration for team ID: ${req.params.id}`);
         await pool.execute("UPDATE teams SET members = '[]', mentor = '{}' WHERE id = ?", [req.params.id]);
-        res.json({ message: 'Team registration cleared' });
+        res.status(200).json({ success: true, message: 'Team registration cleared' });
     } catch (err) {
         console.error('Clear registration error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -618,12 +679,12 @@ app.get('/api/evaluations', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/evaluations', authMiddleware, adminOnly, async (req, res) => {
-    const { submissionId, codeQuality, reqSatisfaction, innovation, totalScore, requirementsMet, totalRequirements, feedback } = req.body;
+    const { submissionId, codeQuality, reqSatisfaction, innovation, totalScore, requirementsMet, totalRequirements, feedback, detailedReport } = req.body;
 
     await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
     await pool.execute(
-        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [submissionId, codeQuality || 0, reqSatisfaction || 0, innovation || 0, totalScore || 0, requirementsMet || 0, totalRequirements || 10, feedback || '']
+        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [submissionId, codeQuality || 0, reqSatisfaction || 0, innovation || 0, totalScore || 0, requirementsMet || 0, totalRequirements || 10, feedback || '', JSON.stringify(detailedReport)]
     );
 
     res.json({ message: 'Evaluation saved' });
@@ -631,20 +692,54 @@ app.post('/api/evaluations', authMiddleware, adminOnly, async (req, res) => {
 
 // POST /api/evaluate — AI evaluation (Cerebras or fallback)
 app.post('/api/evaluate', authMiddleware, adminOnly, async (req, res) => {
-    const { submissionId, useCaseTitle, requirementText, githubUrl, phase } = req.body;
+    const { submissionId, useCaseTitle, requirementText, githubUrl, phase, allRequirements } = req.body;
     const apiKey = process.env.CEREBRAS_API_KEY;
 
     let result;
+    const githubContent = await fetchGithubRepoContent(githubUrl);
 
     if (apiKey) {
-        const prompt = `You are an expert hackathon code evaluator. Evaluate this submission:
-**Use Case:** ${useCaseTitle || 'Unknown'}
-**Requirement:** ${requirementText || 'Unknown'}
-**GitHub URL:** ${githubUrl}
-**Phase:** ${phase}
+        const prompt = `You are an expert technical auditor and code evaluator for a Healthcare Hackathon (HackMaster 3.0).
+Your task is to strictly evaluate a project's source code against a specific Use Case and its requirements.
 
-Respond ONLY in valid JSON:
-{"codeQuality":<0-100>,"reqSatisfaction":<0-100>,"innovation":<0-100>,"totalScore":<0-100>,"requirementsMet":<0-10>,"totalRequirements":10,"feedback":"<2-3 sentences>"}`;
+**PROJECT CONTEXT:**
+- **Use Case Title:** ${useCaseTitle || 'Not Provided'}
+- **Current Phase:** ${phase}
+- **Submission GitHub:** ${githubUrl}
+
+**REQUIREMENTS TO EVALUATE:**
+${Array.isArray(allRequirements) ? allRequirements.map((r, i) => `${i + 1}. ${r.text}`).join('\n') : requirementText}
+
+**SOURCE CODE EXTRACTED FROM GITHUB:**
+${githubContent || 'CODE NOT ACCESSIBLE'}
+
+**INSTRUCTIONS:**
+1. Analyze the code blocks provided above.
+2. For each requirement listed, determine if it is implemented and how well.
+3. Assign a satisfaction score (0-100) for each requirement.
+4. Identify technical mistakes, missing logic, or security flaws.
+5. Provide a summary technical feedback.
+
+**RESPONSE FORMAT:**
+You MUST respond ONLY with a valid JSON object in this exact structure:
+{
+  "codeQuality": <0-100>,
+  "reqSatisfaction": <0-100 average>,
+  "innovation": <0-100>,
+  "totalScore": <0-100 average of all>,
+  "requirementsMet": <count of met requirements>,
+  "totalRequirements": <total count>,
+  "feedback": "Concise technical summary of the overall project (2-3 sentences).",
+  "detailedReport": [
+    {
+      "req": "Requirement text",
+      "score": <0-100>,
+      "status": "Met" | "Partial" | "Missing",
+      "explanation": "Explain why this score was given based on code evidence.",
+      "mistakes": ["List any issues found here"]
+    }
+  ]
+}`;
 
         try {
             const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
@@ -652,8 +747,13 @@ Respond ONLY in valid JSON:
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                 body: JSON.stringify({
                     model: 'llama-3.3-70b',
-                    messages: [{ role: 'system', content: 'Respond only with valid JSON.' }, { role: 'user', content: prompt }],
-                    max_tokens: 500, temperature: 0.3,
+                    messages: [
+                        { role: 'system', content: 'You are a strict technical evaluator. Respond only with valid JSON.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    max_tokens: 1500,
+                    temperature: 0.2,
+                    response_format: { type: 'json_object' }
                 }),
             });
 
@@ -662,6 +762,8 @@ Respond ONLY in valid JSON:
                 const content = data.choices?.[0]?.message?.content || '';
                 const jsonMatch = content.match(/\{[\s\S]*\}/);
                 if (jsonMatch) result = JSON.parse(jsonMatch[0]);
+            } else {
+                console.error('Cerebras API Error Status:', response.status);
             }
         } catch (error) {
             console.warn('Cerebras API failed, using fallback:', error.message);
@@ -678,14 +780,31 @@ Respond ONLY in valid JSON:
             totalScore: Math.min(100, base + ((submissionId * 2) % 12)),
             requirementsMet: Math.min(10, 4 + (submissionId % 5)),
             totalRequirements: 10,
-            feedback: `Submission evaluated for ${phase}. Implementation shows ${base > 70 ? 'strong' : 'adequate'} understanding.`
+            feedback: `Submission evaluated for ${phase}. Implementation shows ${base > 70 ? 'strong' : 'adequate'} understanding.`,
+            detailedReport: Array.isArray(allRequirements) ? allRequirements.map(r => ({
+                req: r.text,
+                score: base,
+                status: base > 60 ? "Met" : "Partial",
+                explanation: "Fallback evaluation based on submission metadata.",
+                mistakes: []
+            })) : []
         };
     }
 
     await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
     await pool.execute(
-        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [submissionId, result.codeQuality || 0, result.reqSatisfaction || 0, result.innovation || 0, result.totalScore || 0, result.requirementsMet || 0, result.totalRequirements || 10, result.feedback || '']
+        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            submissionId,
+            result.codeQuality || 0,
+            result.reqSatisfaction || 0,
+            result.innovation || 0,
+            result.totalScore || 0,
+            result.requirementsMet || 0,
+            result.totalRequirements || 10,
+            result.feedback || '',
+            JSON.stringify(result.detailedReport || [])
+        ]
     );
 
     res.json({ message: 'Evaluation complete', result });
