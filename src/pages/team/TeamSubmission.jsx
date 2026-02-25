@@ -247,32 +247,67 @@ export default function TeamSubmission() {
                                 <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.6 }}>{selectedReport.report.feedback}</p>
                             </div>
 
-                            <h4 style={{ marginBottom: 'var(--space-md)' }}>📋 Detailed Audit Logs</h4>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-                                {(() => {
-                                    const details = typeof selectedReport.report.detailed_report === 'string'
-                                        ? JSON.parse(selectedReport.report.detailed_report)
-                                        : selectedReport.report.detailed_report;
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 'var(--space-xl)', alignItems: 'start' }}>
+                                <div>
+                                    <h4 style={{ marginBottom: 'var(--space-md)' }}>📋 Requirement Breakdown</h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                                        {(() => {
+                                            const details = typeof selectedReport.report.detailed_report === 'string'
+                                                ? JSON.parse(selectedReport.report.detailed_report)
+                                                : selectedReport.report.detailed_report;
 
-                                    return Array.isArray(details) && details.map((r, i) => (
-                                        <div key={i} className="glass-card" style={{ padding: 'var(--space-md)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{r.req}</div>
-                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: r.score >= 80 ? 'var(--accent-green)' : r.score >= 50 ? 'var(--accent-yellow)' : 'var(--accent-red)' }}>{r.score}%</span>
-                                                    <span className={`badge ${r.status === 'Met' ? 'badge-success' : r.status === 'Partial' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize: '0.6rem' }}>{r.status}</span>
+                                            return Array.isArray(details) && details.map((r, i) => (
+                                                <div key={i} className="glass-card" style={{ padding: 'var(--space-md)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{r.req}</div>
+                                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: r.score >= 80 ? 'var(--accent-green)' : r.score >= 50 ? 'var(--accent-yellow)' : 'var(--accent-red)' }}>{r.score}%</span>
+                                                            <span className={`badge ${r.status === 'Met' ? 'badge-success' : r.status === 'Partial' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize: '0.6rem' }}>{r.status}</span>
+                                                        </div>
+                                                    </div>
+                                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 8px 0' }}>{r.explanation}</p>
+                                                    {r.mistakes && r.mistakes.length > 0 && (
+                                                        <div style={{ background: 'rgba(255, 61, 113, 0.1)', padding: '8px', borderRadius: '4px' }}>
+                                                            <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--accent-red)', marginBottom: '4px' }}>MISTAKES / IMPROVEMENTS:</div>
+                                                            {r.mistakes.map((m, j) => <div key={j} style={{ fontSize: '0.7rem', color: 'var(--text-primary)' }}>• {m}</div>)}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                            </div>
-                                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 8px 0' }}>{r.explanation}</p>
-                                            {r.mistakes && r.mistakes.length > 0 && (
-                                                <div style={{ background: 'rgba(255, 61, 113, 0.1)', padding: '8px', borderRadius: '4px' }}>
-                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--accent-red)', marginBottom: '4px' }}>MISTAKES / IMPROVEMENTS:</div>
-                                                    {r.mistakes.map((m, j) => <div key={j} style={{ fontSize: '0.7rem', color: 'var(--text-primary)' }}>• {m}</div>)}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ));
-                                })()}
+                                            ));
+                                        })()}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 style={{ marginBottom: 'var(--space-md)' }}>📂 Repository Structure</h4>
+                                    <div className="folder-tree" style={{
+                                        background: 'rgba(0,0,0,0.3)',
+                                        padding: 'var(--space-lg)',
+                                        borderRadius: 'var(--radius-md)',
+                                        maxHeight: '600px',
+                                        overflowY: 'auto'
+                                    }}>
+                                        {(() => {
+                                            try {
+                                                const tree = typeof selectedReport.report.file_tree === 'string' ? JSON.parse(selectedReport.report.file_tree) : selectedReport.report.file_tree;
+                                                if (!tree || tree.length === 0) return <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No tree data available.</div>;
+                                                return tree.map((line, i) => (
+                                                    <div key={i} style={{
+                                                        fontFamily: 'var(--font-mono)',
+                                                        fontSize: '0.75rem',
+                                                        color: line.startsWith('📁') ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                                                        marginBottom: '2px',
+                                                        whiteSpace: 'pre'
+                                                    }}>
+                                                        {line}
+                                                    </div>
+                                                ));
+                                            } catch (e) {
+                                                return <div style={{ color: 'var(--accent-red)' }}>Error loading tree.</div>;
+                                            }
+                                        })()}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

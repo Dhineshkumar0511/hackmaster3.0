@@ -187,6 +187,12 @@ async function initDb() {
     } catch (e) {
         // Already migrated
     }
+    try {
+        await pool.execute("ALTER TABLE evaluation_results ADD COLUMN file_tree LONGTEXT");
+        console.log('✅ Added file_tree column to evaluation_results');
+    } catch (e) {
+        // Already migrated
+    }
 
     // Requirements columns migration
     for (let i = 1; i <= 10; i++) {
@@ -491,14 +497,35 @@ async function fetchGithubRepoContent(githubUrl) {
         const treeStr = fileTree.length > 0 ? `\n📂 FULL REPOSITORY FILE TREE (${fileTree.length} items):\n${fileTree.join('\n')}\n` : '';
         const summary = `\n📊 REPO STATS: ${fileTree.length} total items found, ${allFiles.length} code files identified, ${fileCount} files analyzed\n`;
 
-        if (fileCount === 0) {
-            return `${treeStr}${summary}\n⚠️ NO RELEVANT CODE FILES FOUND IN THIS REPOSITORY. The repository may be empty, contain only binary files, or use unsupported file formats.`;
+        if (fileCount === 0 && fileTree.length === 0) {
+            return {
+                fullContext: `⚠️ ERROR: REPOSITORY NOT ACCESSIBLE OR EMPTY.`,
+                fileTree: [],
+                stats: { totalItems: 0, codeFiles: 0, analyzedFiles: 0 }
+            };
         }
 
-        return `${treeStr}${summary}${codeContext}`;
+        if (fileCount === 0) {
+            const noCodeMsg = `${treeStr}${summary}\n⚠️ NO RELEVANT CODE FILES FOUND IN THIS REPOSITORY. The repository may be empty, contain only binary files, or use unsupported file formats.`;
+            return {
+                fullContext: noCodeMsg,
+                fileTree: fileTree,
+                stats: { totalItems: fileTree.length, codeFiles: 0, analyzedFiles: 0 }
+            };
+        }
+
+        return {
+            fullContext: `${treeStr}${summary}${codeContext}`,
+            fileTree: fileTree,
+            stats: { totalItems: fileTree.length, codeFiles: allFiles.length, analyzedFiles: fileCount }
+        };
     } catch (error) {
         console.error('GitHub fetch error:', error);
-        return `ERROR: Failed to fetch repository content. Error: ${error.message}. The repository may be private, deleted, or the URL may be incorrect.`;
+        return {
+            fullContext: `ERROR: Failed to fetch repository content. Error: ${error.message}.`,
+            fileTree: [],
+            stats: { totalItems: 0, codeFiles: 0, analyzedFiles: 0 }
+        };
     }
 }
 
@@ -821,7 +848,9 @@ app.post('/api/evaluate', authMiddleware, adminOnly, async (req, res) => {
     const apiKey = process.env.CEREBRAS_API_KEY;
 
     try {
-        const githubContent = await fetchGithubRepoContent(githubUrl);
+        const githubData = await fetchGithubRepoContent(githubUrl);
+        const githubContent = githubData.fullContext;
+        const fileTreeRaw = githubData.fileTree;
         let evaluation;
 
         // Build the requirements list
@@ -1064,10 +1093,10 @@ ${githubContent || 'CODE NOT ACCESSIBLE — Score should be 0 since no code coul
 
 
         await pool.execute(
-            `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE code_quality=VALUES(code_quality), req_satisfaction=VALUES(req_satisfaction), innovation=VALUES(innovation), total_score=VALUES(total_score), requirements_met=VALUES(requirements_met), total_requirements=VALUES(total_requirements), feedback=VALUES(feedback), detailed_report=VALUES(detailed_report)`,
-            [submissionId, evaluation.codeQuality, evaluation.reqSatisfaction, evaluation.innovation, evaluation.totalScore, evaluation.requirementsMet, evaluation.totalRequirements, evaluation.feedback, JSON.stringify(evaluation.detailedReport)]
+            `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report, file_tree)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE code_quality=VALUES(code_quality), req_satisfaction=VALUES(req_satisfaction), innovation=VALUES(innovation), total_score=VALUES(total_score), requirements_met=VALUES(requirements_met), total_requirements=VALUES(total_requirements), feedback=VALUES(feedback), detailed_report=VALUES(detailed_report), file_tree=VALUES(file_tree)`,
+            [submissionId, evaluation.codeQuality, evaluation.reqSatisfaction, evaluation.innovation, evaluation.totalScore, evaluation.requirementsMet, evaluation.totalRequirements, evaluation.feedback, JSON.stringify(evaluation.detailedReport), JSON.stringify(fileTreeRaw)]
         );
 
         res.json({ message: 'Evaluation complete', evaluation });
