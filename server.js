@@ -516,14 +516,19 @@ app.delete('/api/teams/:id/registration', authMiddleware, adminOnly, async (req,
 
 app.get('/api/submissions', authMiddleware, async (req, res) => {
     try {
-        let query = 'SELECT * FROM submissions';
+        const batch = req.query.batch;
+        let query = 'SELECT s.* FROM submissions s JOIN teams t ON s.team_id = t.id';
         const params = [];
 
         if (req.user.role === 'team') {
-            query += ' WHERE team_number = ?';
-            params.push(req.user.teamNumber);
+            query += ' WHERE s.team_number = ? AND t.batch = ?';
+            params.push(req.user.teamNumber, req.user.batch);
+        } else if (batch) {
+            query += ' WHERE t.batch = ?';
+            params.push(batch);
         }
-        query += ' ORDER BY timestamp DESC';
+
+        query += ' ORDER BY s.timestamp DESC';
 
         const [rows] = await pool.execute(query, params);
         res.json(rows);
@@ -585,8 +590,31 @@ app.delete('/api/submissions', authMiddleware, adminOnly, async (req, res) => {
 // ==========================================
 
 app.get('/api/evaluations', authMiddleware, async (req, res) => {
-    const [rows] = await pool.execute('SELECT * FROM evaluation_results ORDER BY evaluated_at DESC');
-    res.json(rows);
+    try {
+        const batch = req.query.batch;
+        let query = `
+            SELECT er.* 
+            FROM evaluation_results er 
+            JOIN submissions s ON er.submission_id = s.id 
+            JOIN teams t ON s.team_id = t.id
+        `;
+        const params = [];
+
+        if (req.user.role === 'team') {
+            query += ' WHERE s.team_number = ? AND t.batch = ?';
+            params.push(req.user.teamNumber, req.user.batch);
+        } else if (batch) {
+            query += ' WHERE t.batch = ?';
+            params.push(batch);
+        }
+
+        query += ' ORDER BY er.evaluated_at DESC';
+        const [rows] = await pool.execute(query, params);
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch evaluations error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 app.post('/api/evaluations', authMiddleware, adminOnly, async (req, res) => {
@@ -668,8 +696,26 @@ Respond ONLY in valid JSON:
 // ==========================================
 
 app.get('/api/mentor-marks', authMiddleware, async (req, res) => {
-    const [rows] = await pool.execute('SELECT * FROM mentor_marks ORDER BY team_id');
-    res.json(rows);
+    try {
+        const batch = req.query.batch;
+        let query = 'SELECT m.* FROM mentor_marks m JOIN teams t ON m.team_id = t.id';
+        const params = [];
+
+        if (req.user.role === 'team') {
+            query += ' WHERE t.batch = ?';
+            params.push(req.user.batch);
+        } else if (batch) {
+            query += ' WHERE t.batch = ?';
+            params.push(batch);
+        }
+
+        query += ' ORDER BY m.team_id';
+        const [rows] = await pool.execute(query, params);
+        res.json(rows);
+    } catch (err) {
+        console.error('Fetch mentor marks error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 app.post('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {

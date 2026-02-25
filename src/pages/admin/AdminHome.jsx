@@ -49,7 +49,7 @@ export default function AdminHome() {
             </div>
 
             <div className="stats-grid">
-                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(108, 99, 255, 0.15)' }}>👥</div><div className="stat-value gradient-text">{hackathonInfo.totalTeams}</div><div className="stat-label">Total Teams</div></div>
+                <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(108, 99, 255, 0.15)' }}>👥</div><div className="stat-value gradient-text">{teams.length}</div><div className="stat-label">Total Teams</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 212, 255, 0.15)' }}>🎯</div><div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>{teamsWithAssignment}</div><div className="stat-label">Teams Assigned</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(0, 245, 160, 0.15)' }}>📤</div><div className="stat-value" style={{ color: 'var(--accent-green)' }}>{totalSubmissions}</div><div className="stat-label">Total Submissions</div></div>
                 <div className="glass-card stat-card"><div className="stat-icon" style={{ background: 'rgba(255, 140, 0, 0.15)' }}>🤖</div><div className="stat-value" style={{ color: 'var(--accent-orange)' }}>{evaluatedCount}</div><div className="stat-label">AI Evaluated</div></div>

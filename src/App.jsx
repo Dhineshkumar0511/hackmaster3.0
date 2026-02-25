@@ -128,34 +128,37 @@ function App() {
 
     const fetchSubmissions = useCallback(async () => {
         try {
-            const data = await apiFetch('/submissions');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/submissions?batch=${batch}`);
             setSubmissions(data);
         } catch (err) {
             console.error('Error fetching submissions:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchEvaluations = useCallback(async () => {
         try {
-            const data = await apiFetch('/evaluations');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/evaluations?batch=${batch}`);
             const map = {};
             data.forEach(ev => { map[ev.submission_id] = ev; });
             setEvaluationResults(map);
         } catch (err) {
             console.error('Error fetching evaluations:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchMentorMarks = useCallback(async () => {
         try {
-            const data = await apiFetch('/mentor-marks');
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/mentor-marks?batch=${batch}`);
             const map = {};
             data.forEach(m => { map[m.team_id] = m; });
             setMentorMarks(map);
         } catch (err) {
             console.error('Error fetching mentor marks:', err);
         }
-    }, []);
+    }, [selectedBatch, user]);
 
     const fetchSettings = useCallback(async () => {
         try {
