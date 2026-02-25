@@ -20,8 +20,14 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'hackmaster3.0_smvec_2026_secret_key';
-const DATABASE_URL = process.env.DATABASE_URL || 'mysql://heqTNm2aAnj7Tmh.root:or2xeY112sLsTLTe@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/test';
+const JWT_SECRET = process.env.JWT_SECRET || 'hackmaster_secret_2026';
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+    console.error('❌ FATAL ERROR: DATABASE_URL is missing!');
+    console.error('Please add DATABASE_URL to your .env file or Render environment variables.');
+    process.exit(1);
+}
 
 app.use(cors());
 app.use(express.json());
