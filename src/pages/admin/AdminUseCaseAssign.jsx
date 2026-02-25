@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminUseCaseAssign() {
-    const { teams, useCases, assignUseCase, unlockedRequirements, setUnlockedRequirements } = useAppContext();
+    const { teams, assignUseCase, unlockedRequirements, setUnlockedRequirements, batches, selectedBatch, setSelectedBatch, getUseCasesByBatch } = useAppContext();
     const [selectedTeam, setSelectedTeam] = useState('');
     const [selectedUseCase, setSelectedUseCase] = useState('');
     const [expandedUC, setExpandedUC] = useState(null);
+
+    const useCases = getUseCasesByBatch(selectedBatch);
 
     const handleAssign = () => {
         if (!selectedTeam || !selectedUseCase) return;
@@ -29,6 +31,35 @@ export default function AdminUseCaseAssign() {
             <div className="page-header">
                 <h2 className="gradient-text">🎯 Assign Use Cases & Release Requirements</h2>
                 <p>Assign use cases to teams and release requirements progressively</p>
+            </div>
+
+            {/* Batch Selector */}
+            <div className="glass-card" style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 'var(--space-lg)', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>🎓 Select Batch:</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    {batches.map(b => (
+                        <button
+                            key={b.id}
+                            onClick={() => setSelectedBatch(b.id)}
+                            style={{
+                                padding: '10px 24px',
+                                borderRadius: '10px',
+                                border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                                background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                                color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                                fontWeight: 700,
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                            }}
+                        >
+                            {b.label} ({b.totalTeams} Teams)
+                        </button>
+                    ))}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                    Showing {useCases.length} use cases for {selectedBatch === '2027' ? '3rd Year' : '2nd Year'}
+                </span>
             </div>
 
             {/* Requirement Release Control */}

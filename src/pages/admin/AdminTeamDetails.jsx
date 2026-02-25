@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminTeamDetails() {
-    const { teams, useCases } = useAppContext();
+    const { teams, allUseCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedTeam, setExpandedTeam] = useState(null);
+
+    const allUCs = [...(allUseCases['2027'] || []), ...(allUseCases['2028'] || [])];
 
     const filteredTeams = teams.filter(t =>
         t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -18,13 +20,26 @@ export default function AdminTeamDetails() {
                 <p>View all team registrations, members, and mentor details</p>
             </div>
 
+            {/* Batch Selector */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: 'var(--space-lg)' }}>
+                {batches.map(b => (
+                    <button key={b.id} onClick={() => setSelectedBatch(b.id)} style={{
+                        padding: '8px 20px', borderRadius: '8px',
+                        border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                        background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                        color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                        fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                    }}>{b.label}</button>
+                ))}
+            </div>
+
             <div style={{ marginBottom: 'var(--space-xl)' }}>
                 <input className="form-input" placeholder="🔍 Search by team name or number..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ maxWidth: '400px' }} />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-lg)' }}>
                 {filteredTeams.map(team => {
-                    const uc = team.use_case_id ? useCases.find(u => u.id === team.use_case_id) : null;
+                    const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
                     const isExpanded = expandedTeam === team.id;
 
                     return (

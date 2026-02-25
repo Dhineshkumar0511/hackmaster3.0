@@ -3,7 +3,8 @@ import { useAppContext } from '../../App';
 import { HACKATHON_INFO, EVALUATION_PHASES, TIMELINE } from '../../data/constants';
 
 export default function TeamHome() {
-    const { user, teams, submissions, useCases } = useAppContext();
+    const { user, teams, submissions, getUseCasesByBatch } = useAppContext();
+    const useCases = getUseCasesByBatch(user?.batch || '2027');
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
     const myUseCase = myTeam?.use_case_id ? useCases.find(u => u.id === myTeam.use_case_id) : null;
     const mySubmissions = submissions.filter(s => s.team_number === user?.teamNumber);

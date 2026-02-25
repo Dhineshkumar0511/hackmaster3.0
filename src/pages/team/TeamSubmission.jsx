@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function TeamSubmission() {
-    const { user, teams, submissions, addSubmission, evaluationResults, useCases, unlockedRequirements } = useAppContext();
+    const { user, teams, submissions, addSubmission, evaluationResults, getUseCasesByBatch, unlockedRequirements } = useAppContext();
+    const myBatchUseCases = getUseCasesByBatch(user?.batch || '2027');
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
-    const myUseCase = myTeam?.use_case_id ? useCases.find(u => u.id === myTeam.use_case_id) : null;
+    const myUseCase = myTeam?.use_case_id ? myBatchUseCases.find(u => u.id === myTeam.use_case_id) : null;
     const mySubmissions = submissions.filter(s => s.team_number === user?.teamNumber);
 
     const [formData, setFormData] = useState({ githubUrl: '', requirementNumbers: [], description: '', phase: 'Phase 1' });

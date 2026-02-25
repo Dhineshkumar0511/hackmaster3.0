@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminHome() {
-    const { teams, submissions, mentorMarks, evaluationResults, hackathonInfo } = useAppContext();
+    const { teams, submissions, mentorMarks, evaluationResults, hackathonInfo, batches, selectedBatch, setSelectedBatch } = useAppContext();
 
     const totalSubmissions = submissions.length;
     const evaluatedCount = Object.keys(evaluationResults).length;
@@ -22,6 +22,8 @@ export default function AdminHome() {
         count: submissions.filter(s => s.phase === phase).length,
     }));
 
+    const currentBatchInfo = batches.find(b => b.id === selectedBatch);
+
     return (
         <div>
             <div className="hero-banner" style={{ marginBottom: 'var(--space-2xl)' }}>
@@ -31,6 +33,19 @@ export default function AdminHome() {
                     <div className="hero-info-item">📅 <strong>{hackathonInfo.hackathonDate}</strong></div>
                     <div className="hero-info-item">🏥 <strong>{hackathonInfo.domain}</strong></div>
                 </div>
+            </div>
+
+            {/* Batch Selector */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: 'var(--space-xl)' }}>
+                {batches.map(b => (
+                    <button key={b.id} onClick={() => setSelectedBatch(b.id)} style={{
+                        padding: '10px 24px', borderRadius: '10px',
+                        border: selectedBatch === b.id ? '2px solid var(--primary)' : '2px solid rgba(255,255,255,0.1)',
+                        background: selectedBatch === b.id ? 'linear-gradient(135deg, var(--primary), var(--accent-cyan))' : 'rgba(255,255,255,0.05)',
+                        color: selectedBatch === b.id ? '#fff' : 'var(--text-secondary)',
+                        fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.3s ease',
+                    }}>🎓 {b.label}</button>
+                ))}
             </div>
 
             <div className="stats-grid">

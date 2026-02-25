@@ -11,14 +11,16 @@ const PHASE_CATEGORIES = [
 ];
 
 export default function AdminMentorMarks() {
-    const { teams, mentorMarks, updateMentorMarks, useCases } = useAppContext();
+    const { teams, mentorMarks, updateMentorMarks, allUseCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
     const [selectedTeam, setSelectedTeam] = useState('');
     const [marks, setMarks] = useState({});
     const [activeTab, setActiveTab] = useState('phase'); // 'phase' or 'requirement'
 
+    const allUCs = [...(allUseCases['2027'] || []), ...(allUseCases['2028'] || [])];
+
     const selectedTeamData = teams.find(t => String(t.id) === selectedTeam);
     const assignedUseCase = selectedTeamData?.use_case_id
-        ? useCases.find(u => u.id === selectedTeamData.use_case_id)
+        ? allUCs.find(u => u.id === selectedTeamData.use_case_id)
         : null;
 
     const handleTeamSelect = (teamId) => {
@@ -63,7 +65,7 @@ export default function AdminMentorMarks() {
                     <option value="">Select a team...</option>
                     {teams.map(t => {
                         const hasMarks = mentorMarks[t.id];
-                        const uc = t.use_case_id ? useCases.find(u => u.id === t.use_case_id) : null;
+                        const uc = t.use_case_id ? allUCs.find(u => u.id === t.use_case_id) : null;
                         return <option key={t.id} value={t.id}>Team {t.team_number} — {t.name}{uc ? ` [UC #${uc.id}: ${uc.title.substring(0, 30)}]` : ' [No UC]'}{hasMarks ? ' ✅' : ''}</option>;
                     })}
                 </select>
@@ -197,7 +199,7 @@ export default function AdminMentorMarks() {
                                 {teams.filter(t => mentorMarks[t.id]).map(team => {
                                     const m = mentorMarks[team.id] || {};
                                     const teamPhaseTotal = PHASE_CATEGORIES.reduce((sum, cat) => sum + (Number(m[cat.key]) || 0), 0);
-                                    const uc = team.use_case_id ? useCases.find(u => u.id === team.use_case_id) : null;
+                                    const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
                                     const teamReqTotal = uc
                                         ? uc.requirements.reduce((sum, _, idx) => sum + (Number(m[`req_${idx + 1}`]) || 0), 0)
                                         : 0;
