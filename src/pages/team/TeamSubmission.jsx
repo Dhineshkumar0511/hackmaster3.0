@@ -2,24 +2,49 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function TeamSubmission() {
-    const { user, teams, submissions, addSubmission, evaluationResults, useCases } = useAppContext();
+    const { user, teams, submissions, addSubmission, evaluationResults, useCases, unlockedRequirements } = useAppContext();
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
     const myUseCase = myTeam?.use_case_id ? useCases.find(u => u.id === myTeam.use_case_id) : null;
     const mySubmissions = submissions.filter(s => s.team_number === user?.teamNumber);
 
-    const [formData, setFormData] = useState({ githubUrl: '', requirementNumber: '', description: '', phase: 'Phase 1' });
+    const [formData, setFormData] = useState({ githubUrl: '', requirementNumbers: [], description: '', phase: 'Phase 1' });
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!formData.githubUrl || !formData.requirementNumber) return;
-        addSubmission({
-            githubUrl: formData.githubUrl,
-            requirementNumber: parseInt(formData.requirementNumber),
-            description: formData.description,
-            phase: formData.phase,
-            useCaseId: myTeam?.use_case_id,
+        if (!formData.githubUrl || formData.requirementNumbers.length === 0) return;
+
+        setSubmitting(true);
+        // Multi-submission support
+        for (const reqNum of formData.requirementNumbers) {
+            await addSubmission({
+                githubUrl: formData.githubUrl,
+                requirementNumber: reqNum,
+                description: formData.description,
+                phase: formData.phase,
+                useCaseId: myTeam?.use_case_id,
+            });
+        }
+        setFormData({ githubUrl: '', requirementNumbers: [], description: '', phase: formData.phase });
+        setSubmitting(false);
+    };
+
+    const toggleRequirement = (num) => {
+        setFormData(prev => {
+            const current = prev.requirementNumbers;
+            const updated = current.includes(num)
+                ? current.filter(n => n !== num)
+                : [...current, num];
+            return { ...prev, requirementNumbers: updated };
         });
-        setFormData({ githubUrl: '', requirementNumber: '', description: '', phase: formData.phase });
+    };
+
+    const handleSelectAll = () => {
+        const allUnlocked = Array.from({ length: Math.min(unlockedRequirements, myUseCase.requirements.length) }, (_, i) => i + 1);
+        setFormData(prev => ({
+            ...prev,
+            requirementNumbers: prev.requirementNumbers.length === allUnlocked.length ? [] : allUnlocked
+        }));
     };
 
     return (
@@ -31,22 +56,81 @@ export default function TeamSubmission() {
 
             {myUseCase ? (
                 <div className="glass-card submission-form-card">
-                    <h3>🆕 New Submission</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-lg)' }}>
+                        <h3 style={{ margin: 0 }}>🆕 New Submission</h3>
+                        <span className="badge badge-info" style={{ fontSize: '0.75rem' }}>
+                            {formData.requirementNumbers.length} Requirements Selected
+                        </span>
+                    </div>
+
                     <form onSubmit={handleSubmit}>
                         <div className="submission-grid">
-                            <div className="form-group">
+                            <div className="form-group" style={{ gridColumn: 'span 2' }}>
                                 <label className="form-label">GitHub Repository URL</label>
                                 <input className="form-input" type="url" placeholder="https://github.com/your-team/project" value={formData.githubUrl} onChange={e => setFormData({ ...formData, githubUrl: e.target.value })} required />
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">Requirement Number</label>
-                                <select className="form-input" value={formData.requirementNumber} onChange={e => setFormData({ ...formData, requirementNumber: e.target.value })} required>
-                                    <option value="">Select requirement...</option>
-                                    {myUseCase.requirements.map((req, idx) => (
-                                        <option key={idx} value={idx + 1}>R{idx + 1} — {req}</option>
-                                    ))}
-                                </select>
+
+                            <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <label className="form-label" style={{ margin: 0 }}>Select Requirements (Released: {unlockedRequirements})</label>
+                                    <button type="button" onClick={handleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                                        {formData.requirementNumbers.length === Math.min(unlockedRequirements, myUseCase.requirements.length) ? 'Unselect All' : 'Select All Unlocked'}
+                                    </button>
+                                </div>
+
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                                    gap: '8px',
+                                    background: 'rgba(255, 255, 255, 0.03)',
+                                    padding: 'var(--space-md)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-color)',
+                                    maxHeight: '250px',
+                                    overflowY: 'auto'
+                                }}>
+                                    {myUseCase.requirements.slice(0, unlockedRequirements).map((req, idx) => {
+                                        const num = idx + 1;
+                                        const isChecked = formData.requirementNumbers.includes(num);
+                                        return (
+                                            <div
+                                                key={idx}
+                                                onClick={() => toggleRequirement(num)}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '12px',
+                                                    padding: '10px 14px',
+                                                    background: isChecked ? 'rgba(108, 99, 255, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                                                    border: `1px solid ${isChecked ? 'var(--primary)' : 'transparent'}`,
+                                                    borderRadius: '8px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s ease',
+                                                }}
+                                            >
+                                                <div style={{
+                                                    width: '18px',
+                                                    height: '18px',
+                                                    borderRadius: '4px',
+                                                    border: `2px solid ${isChecked ? 'var(--primary)' : 'rgba(255,255,255,0.2)'}`,
+                                                    background: isChecked ? 'var(--primary)' : 'transparent',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '0.6rem'
+                                                }}>
+                                                    {isChecked && '✓'}
+                                                </div>
+                                                <div style={{ fontSize: '0.8rem', flex: 1 }}>
+                                                    <span style={{ fontWeight: 700, color: isChecked ? 'var(--primary-light)' : 'var(--text-muted)', marginRight: '8px' }}>R{num}</span>
+                                                    <span style={{ color: isChecked ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{req}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
+
                             <div className="form-group">
                                 <label className="form-label">Evaluation Phase</label>
                                 <select className="form-input" value={formData.phase} onChange={e => setFormData({ ...formData, phase: e.target.value })}>
@@ -61,7 +145,9 @@ export default function TeamSubmission() {
                             </div>
                         </div>
                         <div style={{ marginTop: 'var(--space-xl)' }}>
-                            <button type="submit" className="btn btn-primary">🚀 Submit for Evaluation</button>
+                            <button type="submit" className="btn btn-primary" disabled={submitting || formData.requirementNumbers.length === 0}>
+                                {submitting ? '⏳ Submitting...' : `🚀 Submit ${formData.requirementNumbers.length} Requirements for Evaluation`}
+                            </button>
                         </div>
                     </form>
                 </div>
