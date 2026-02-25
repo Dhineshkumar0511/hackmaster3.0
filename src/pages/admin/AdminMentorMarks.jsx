@@ -30,21 +30,17 @@ export default function AdminMentorMarks() {
             return;
         }
         setSelectedTeam(teamId);
-        // Ensure numeric lookup for context marks
+        // Ensure numeric lookup for context marks and set immediately
         const existingMarks = mentorMarks[Number(teamId)] || {};
         setMarks(existingMarks);
     };
 
-    // Keep local marks in sync if context changes (e.g. after save/fetch)
     React.useEffect(() => {
         if (selectedTeam) {
-            const contextMarks = mentorMarks[Number(selectedTeam)];
-            if (contextMarks) {
-                setMarks(prev => {
-                    // Only update if we don't have local changes or after a successful context update
-                    return contextMarks;
-                });
-            }
+            const contextMarks = mentorMarks[Number(selectedTeam)] || {};
+            setMarks(contextMarks);
+        } else {
+            setMarks({});
         }
     }, [mentorMarks, selectedTeam]);
 

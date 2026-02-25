@@ -879,22 +879,30 @@ app.get('/api/mentor-marks', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
-    const { teamId, phase1, phase2, phase3, innovation, presentation, teamwork,
-        req1, req2, req3, req4, req5, req6, req7, req8, req9, req10 } = req.body;
-
-    await pool.execute('DELETE FROM mentor_marks WHERE team_id = ?', [teamId]);
-    await pool.execute(
-        `INSERT INTO mentor_marks (
-            team_id, phase1, phase2, phase3, innovation, presentation, teamwork,
-            req1, req2, req3, req4, req5, req6, req7, req8, req9, req10
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-            teamId, phase1 || 0, phase2 || 0, phase3 || 0, innovation || 0, presentation || 0, teamwork || 0,
-            req1 || 0, req2 || 0, req3 || 0, req4 || 0, req5 || 0, req6 || 0, req7 || 0, req8 || 0, req9 || 0, req10 || 0
-        ]
-    );
-
-    res.json({ message: 'Mentor marks saved' });
+    try {
+        const { teamId, phase1, phase2, phase3, innovation, presentation, teamwork,
+            req1, req2, req3, req4, req5, req6, req7, req8, req9, req10 } = req.body;
+        await pool.execute(
+            `INSERT INTO mentor_marks (
+                team_id, phase1, phase2, phase3, innovation, presentation, teamwork,
+                req1, req2, req3, req4, req5, req6, req7, req8, req9, req10
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                phase1=VALUES(phase1), phase2=VALUES(phase2), phase3=VALUES(phase3),
+                innovation=VALUES(innovation), presentation=VALUES(presentation), teamwork=VALUES(teamwork),
+                req1=VALUES(req1), req2=VALUES(req2), req3=VALUES(req3), req4=VALUES(req4), req5=VALUES(req5),
+                req6=VALUES(req6), req7=VALUES(req7), req8=VALUES(req8), req9=VALUES(req9), req10=VALUES(req10),
+                updated_at=CURRENT_TIMESTAMP`,
+            [
+                teamId, phase1 || 0, phase2 || 0, phase3 || 0, innovation || 0, presentation || 0, teamwork || 0,
+                req1 || 0, req2 || 0, req3 || 0, req4 || 0, req5 || 0, req6 || 0, req7 || 0, req8 || 0, req9 || 0, req10 || 0
+            ]
+        );
+        res.json({ message: 'Mentor marks saved' });
+    } catch (err) {
+        console.error('Save mentor marks error:', err);
+        res.status(500).json({ error: 'Failed to save marks' });
+    }
 });
 
 app.delete('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
@@ -965,8 +973,10 @@ app.get('/api/leaderboard', authMiddleware, async (req, res) => {
             const normPhase = Math.round((phaseScore / 60) * 100);
 
             let reqTotal = 0;
-            for (let i = 1; i <= 10; i++) reqTotal += (m[`req${i}`] || 0);
-            const normReq = reqTotal; // Simplified: reqTotal is sum of req1..req10 (max 100)
+            for (let i = 1; i <= 10; i++) {
+                reqTotal += (m[`req${i}`] || 0);
+            }
+            const normReq = reqTotal; // Normalized out of 100 (10 reqs * 10 marks)
 
             const totalScore = Math.round((aiScore + normPhase + normReq) / 3);
 
