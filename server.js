@@ -1,14 +1,14 @@
 // ==========================================
 // HackMaster 3.0 — Backend Server
-// Express + SQLite + JWT Authentication
+// Express + TiDB Cloud (MySQL) + JWT Auth
 // ==========================================
 
 import express from 'express';
 import cors from 'cors';
-import initSqlJs from 'sql.js';
+import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
@@ -21,7 +21,7 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'hackmaster3.0_smvec_2026_secret_key';
-const DB_PATH = join(__dirname, 'hackmaster.db');
+const DATABASE_URL = process.env.DATABASE_URL || 'mysql://heqTNm2aAnj7Tmh.root:or2xeY112sLsTLTe@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/test';
 
 app.use(cors());
 app.use(express.json());
@@ -34,129 +34,130 @@ if (existsSync(DIST_PATH)) {
 }
 
 // ==========================================
-// DATABASE SETUP
+// DATABASE SETUP — TiDB Cloud (MySQL)
 // ==========================================
-let db;
+let pool;
 
 async function initDb() {
-    const SQL = await initSqlJs();
+    // Create connection pool from DATABASE_URL
+    pool = mysql.createPool({
+        uri: DATABASE_URL,
+        ssl: { rejectUnauthorized: true },
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+    });
 
-    // Load existing DB or create new one
-    if (existsSync(DB_PATH)) {
-        const fileBuffer = readFileSync(DB_PATH);
-        db = new SQL.Database(fileBuffer);
-        console.log('📂 Loaded existing database');
-    } else {
-        db = new SQL.Database();
-        console.log('🆕 Created new database');
-    }
+    console.log('🔌 Connecting to TiDB Cloud...');
+
+    // Test connection
+    const conn = await pool.getConnection();
+    console.log('✅ Connected to TiDB Cloud');
+    conn.release();
 
     // Create tables
-    db.run(`
+    await pool.execute(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('team', 'admin')),
-      team_number INTEGER,
-      team_name TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL,
+      team_number INT,
+      team_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-    db.run(`
+    await pool.execute(`
     CREATE TABLE IF NOT EXISTS teams (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      team_number INTEGER UNIQUE NOT NULL,
-      name TEXT NOT NULL,
-      use_case_id INTEGER,
-      members TEXT DEFAULT '[]',
-      mentor TEXT DEFAULT '{}',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      team_number INT UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      use_case_id INT,
+      members TEXT,
+      mentor TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-    db.run(`
+    await pool.execute(`
     CREATE TABLE IF NOT EXISTS submissions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      team_id INTEGER NOT NULL,
-      team_number INTEGER NOT NULL,
-      team_name TEXT,
-      use_case_id INTEGER,
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL,
+      team_number INT NOT NULL,
+      team_name VARCHAR(255),
+      use_case_id INT,
       github_url TEXT NOT NULL,
-      requirement_number INTEGER NOT NULL,
+      requirement_number INT NOT NULL,
       description TEXT,
-      phase TEXT NOT NULL,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      phase VARCHAR(50) NOT NULL,
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (team_id) REFERENCES teams(id)
     )
   `);
 
-    db.run(`
+    await pool.execute(`
     CREATE TABLE IF NOT EXISTS evaluation_results (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      submission_id INTEGER UNIQUE NOT NULL,
-      code_quality INTEGER DEFAULT 0,
-      req_satisfaction INTEGER DEFAULT 0,
-      innovation INTEGER DEFAULT 0,
-      total_score INTEGER DEFAULT 0,
-      requirements_met INTEGER DEFAULT 0,
-      total_requirements INTEGER DEFAULT 10,
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      submission_id INT UNIQUE NOT NULL,
+      code_quality INT DEFAULT 0,
+      req_satisfaction INT DEFAULT 0,
+      innovation INT DEFAULT 0,
+      total_score INT DEFAULT 0,
+      requirements_met INT DEFAULT 0,
+      total_requirements INT DEFAULT 10,
       feedback TEXT,
-      evaluated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (submission_id) REFERENCES submissions(id)
     )
   `);
 
-    db.run(`
+    await pool.execute(`
     CREATE TABLE IF NOT EXISTS mentor_marks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      team_id INTEGER UNIQUE NOT NULL,
-      phase1 INTEGER DEFAULT 0,
-      phase2 INTEGER DEFAULT 0,
-      phase3 INTEGER DEFAULT 0,
-      innovation INTEGER DEFAULT 0,
-      presentation INTEGER DEFAULT 0,
-      teamwork INTEGER DEFAULT 0,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      team_id INT UNIQUE NOT NULL,
+      phase1 INT DEFAULT 0,
+      phase2 INT DEFAULT 0,
+      phase3 INT DEFAULT 0,
+      innovation INT DEFAULT 0,
+      presentation INT DEFAULT 0,
+      teamwork INT DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (team_id) REFERENCES teams(id)
     )
   `);
 
-    // Settings table for global hackathon config
-    db.run(`
+    await pool.execute(`
     CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
+      \`key\` VARCHAR(255) PRIMARY KEY,
       value TEXT NOT NULL
     )
   `);
 
-    // Ensure unlocked_requirements setting exists (default: 5)
-    const settingsCheck = db.exec("SELECT COUNT(*) FROM settings WHERE key = 'unlocked_requirements'");
-    if (settingsCheck[0].values[0][0] === 0) {
-        db.run("INSERT INTO settings (key, value) VALUES ('unlocked_requirements', '5')");
+    // Ensure unlocked_requirements setting exists
+    const [settingsRows] = await pool.execute("SELECT COUNT(*) AS cnt FROM settings WHERE `key` = 'unlocked_requirements'");
+    if (settingsRows[0].cnt === 0) {
+        await pool.execute("INSERT INTO settings (`key`, value) VALUES ('unlocked_requirements', '5')");
     }
 
-    // Seed default admin and teams if empty
-    const userCount = db.exec('SELECT COUNT(*) FROM users')[0].values[0][0];
-    if (userCount === 0) {
+    // Seed if empty
+    const [userCountRows] = await pool.execute('SELECT COUNT(*) AS cnt FROM users');
+    if (userCountRows[0].cnt === 0) {
         console.log('🌱 Seeding initial data...');
         await seedData();
     }
 
-    saveDb();
     console.log('✅ Database initialized');
 }
 
 async function seedData() {
-    // Create admin user (password: hackmaster2026)
+    // Admin: admin / hackmaster2026
     const adminHash = bcrypt.hashSync('hackmaster2026', 10);
-    db.run(
+    await pool.execute(
         'INSERT INTO users (username, password, role, team_name) VALUES (?, ?, ?, ?)',
         ['admin', adminHash, 'admin', 'Administrator']
     );
 
-    // Create 28 teams with UNIQUE random passwords
     const teamNames = [
         'Neural Nexus', 'Code Crusaders', 'Data Dynamos', 'AI Architects',
         'Byte Builders', 'Pixel Pioneers', 'Logic Legends', 'Quantum Quants',
@@ -167,62 +168,43 @@ async function seedData() {
         'Query Queens', 'Rust Rangers', 'Script Sages', 'Vector Vikings'
     ];
 
-    // Generate unique random password for each team
-    const generatePassword = (teamNum) => {
-        const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
-        let suffix = '';
-        for (let j = 0; j < 4; j++) suffix += chars[Math.floor(Math.random() * chars.length)];
-        return `team${teamNum}@${suffix}`;
-    };
-
     console.log('');
-    console.log('   🔑 TEAM PASSWORDS (save these!):');
+    console.log('   🔑 TEAM CREDENTIALS (default):');
     console.log('   ─────────────────────────────────');
 
     for (let i = 0; i < 28; i++) {
         const teamNum = i + 1;
         const teamName = teamNames[i];
         const username = `team${teamNum}`;
-        const password = generatePassword(teamNum);
+        const password = `team${teamNum}@hack`;
         const passwordHash = bcrypt.hashSync(password, 10);
 
         console.log(`   Team ${String(teamNum).padStart(2, ' ')}: ${username} / ${password}`);
 
-        db.run(
+        await pool.execute(
             'INSERT INTO users (username, password, role, team_number, team_name) VALUES (?, ?, ?, ?, ?)',
             [username, passwordHash, 'team', teamNum, teamName]
         );
 
-        db.run(
-            'INSERT INTO teams (team_number, name) VALUES (?, ?)',
-            [teamNum, teamName]
+        await pool.execute(
+            'INSERT INTO teams (team_number, name, members, mentor) VALUES (?, ?, ?, ?)',
+            [teamNum, teamName, '[]', '{}']
         );
     }
 
-    console.log('  ✅ Admin user created');
-    console.log('  ✅ 28 teams created with default passwords');
+    console.log('  ✅ Admin + 28 teams created');
 }
-
-function saveDb() {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    writeFileSync(DB_PATH, buffer);
-}
-
-// Auto-save every 30 seconds
-setInterval(() => saveDb(), 30000);
 
 // ==========================================
 // SETTINGS HELPER
 // ==========================================
-function getSetting(key) {
-    const result = db.exec(`SELECT value FROM settings WHERE key = ?`, [key]);
-    return result.length > 0 ? result[0].values[0][0] : null;
+async function getSetting(key) {
+    const [rows] = await pool.execute('SELECT value FROM settings WHERE `key` = ?', [key]);
+    return rows.length > 0 ? rows[0].value : null;
 }
 
-function setSetting(key, value) {
-    db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, String(value)]);
-    saveDb();
+async function setSetting(key, value) {
+    await pool.execute('INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?', [key, String(value), String(value)]);
 }
 
 // ==========================================
@@ -253,49 +235,51 @@ function adminOnly(req, res, next) {
 // ==========================================
 
 // POST /api/auth/login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
 
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password required' });
     }
 
-    const result = db.exec('SELECT * FROM users WHERE username = ?', [username]);
-    if (result.length === 0 || result[0].values.length === 0) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const row = result[0].values[0];
-    const cols = result[0].columns;
-    const user = {};
-    cols.forEach((col, i) => user[col] = row[i]);
-
-    if (!bcrypt.compareSync(password, user.password)) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-        {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            teamNumber: user.team_number,
-            teamName: user.team_name,
-        },
-        JWT_SECRET,
-        { expiresIn: '24h' }
-    );
-
-    res.json({
-        token,
-        user: {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            teamNumber: user.team_number,
-            teamName: user.team_name,
+    try {
+        const [rows] = await pool.execute('SELECT * FROM users WHERE username = ?', [username]);
+        if (rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid credentials' });
         }
-    });
+
+        const user = rows[0];
+
+        if (!bcrypt.compareSync(password, user.password)) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const token = jwt.sign(
+            {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                teamNumber: user.team_number,
+                teamName: user.team_name,
+            },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            token,
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                teamNumber: user.team_number,
+                teamName: user.team_name,
+            }
+        });
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 // GET /api/auth/me
@@ -304,41 +288,42 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 });
 
 // POST /api/auth/change-password
-app.post('/api/auth/change-password', authMiddleware, (req, res) => {
+app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
-    const result = db.exec('SELECT password FROM users WHERE id = ?', [req.user.id]);
-    if (result.length === 0) return res.status(404).json({ error: 'User not found' });
+    try {
+        const [rows] = await pool.execute('SELECT password FROM users WHERE id = ?', [req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
-    const storedHash = result[0].values[0][0];
-    if (!bcrypt.compareSync(currentPassword, storedHash)) {
-        return res.status(401).json({ error: 'Current password incorrect' });
+        if (!bcrypt.compareSync(currentPassword, rows[0].password)) {
+            return res.status(401).json({ error: 'Current password incorrect' });
+        }
+
+        const newHash = bcrypt.hashSync(newPassword, 10);
+        await pool.execute('UPDATE users SET password = ? WHERE id = ?', [newHash, req.user.id]);
+
+        res.json({ message: 'Password changed successfully' });
+    } catch (err) {
+        console.error('Change password error:', err);
+        res.status(500).json({ error: 'Server error' });
     }
-
-    const newHash = bcrypt.hashSync(newPassword, 10);
-    db.run('UPDATE users SET password = ? WHERE id = ?', [newHash, req.user.id]);
-    saveDb();
-
-    res.json({ message: 'Password changed successfully' });
 });
 
 // ==========================================
 // SETTINGS ROUTES
 // ==========================================
 
-// GET /api/settings — get all settings (unlocked requirements, etc.)
-app.get('/api/settings', authMiddleware, (req, res) => {
-    const unlockedReqs = parseInt(getSetting('unlocked_requirements') || '5', 10);
-    res.json({ unlocked_requirements: unlockedReqs });
+app.get('/api/settings', authMiddleware, async (req, res) => {
+    const val = await getSetting('unlocked_requirements');
+    res.json({ unlocked_requirements: parseInt(val || '5', 10) });
 });
 
-// PUT /api/settings/unlocked-requirements — admin sets how many requirements are visible
-app.put('/api/settings/unlocked-requirements', authMiddleware, adminOnly, (req, res) => {
+app.put('/api/settings/unlocked-requirements', authMiddleware, adminOnly, async (req, res) => {
     const { count } = req.body;
     if (typeof count !== 'number' || count < 1 || count > 10) {
         return res.status(400).json({ error: 'Count must be between 1 and 10' });
     }
-    setSetting('unlocked_requirements', count);
+    await setSetting('unlocked_requirements', count);
     res.json({ message: `Requirements unlocked: ${count}`, unlocked_requirements: count });
 });
 
@@ -346,60 +331,45 @@ app.put('/api/settings/unlocked-requirements', authMiddleware, adminOnly, (req, 
 // TEAM ROUTES
 // ==========================================
 
-// GET /api/teams — list all teams
-app.get('/api/teams', authMiddleware, (req, res) => {
-    const result = db.exec('SELECT * FROM teams ORDER BY team_number');
-    if (result.length === 0) return res.json([]);
+app.get('/api/teams', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM teams ORDER BY team_number');
+        const teams = rows.map(t => ({
+            ...t,
+            members: JSON.parse(t.members || '[]'),
+            mentor: JSON.parse(t.mentor || '{}'),
+        }));
+        res.json(teams);
+    } catch (err) {
+        console.error('Teams error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
-    const teams = result[0].values.map(row => {
-        const team = {};
-        result[0].columns.forEach((col, i) => team[col] = row[i]);
+app.get('/api/teams/:id', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM teams WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Team not found' });
+
+        const team = rows[0];
         team.members = JSON.parse(team.members || '[]');
         team.mentor = JSON.parse(team.mentor || '{}');
-        return team;
-    });
-
-    res.json(teams);
-});
-
-// GET /api/teams/:id
-app.get('/api/teams/:id', authMiddleware, (req, res) => {
-    const result = db.exec('SELECT * FROM teams WHERE id = ?', [req.params.id]);
-    if (result.length === 0 || result[0].values.length === 0) {
-        return res.status(404).json({ error: 'Team not found' });
+        res.json(team);
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
     }
-
-    const team = {};
-    result[0].columns.forEach((col, i) => team[col] = result[0].values[0][i]);
-    team.members = JSON.parse(team.members || '[]');
-    team.mentor = JSON.parse(team.mentor || '{}');
-
-    res.json(team);
 });
 
-// PUT /api/teams/:id/details — update team members & mentor
-app.put('/api/teams/:id/details', authMiddleware, (req, res) => {
+app.put('/api/teams/:id/details', authMiddleware, async (req, res) => {
     const { members, mentor } = req.body;
-
-    db.run(
-        'UPDATE teams SET members = ?, mentor = ? WHERE id = ?',
-        [JSON.stringify(members), JSON.stringify(mentor), req.params.id]
-    );
-    saveDb();
-
+    await pool.execute('UPDATE teams SET members = ?, mentor = ? WHERE id = ?',
+        [JSON.stringify(members), JSON.stringify(mentor), req.params.id]);
     res.json({ message: 'Team details updated' });
 });
 
-// PUT /api/teams/:id/usecase — assign use case (admin only)
-app.put('/api/teams/:id/usecase', authMiddleware, adminOnly, (req, res) => {
+app.put('/api/teams/:id/usecase', authMiddleware, adminOnly, async (req, res) => {
     const { useCaseId } = req.body;
-
-    db.run(
-        'UPDATE teams SET use_case_id = ? WHERE id = ?',
-        [useCaseId, req.params.id]
-    );
-    saveDb();
-
+    await pool.execute('UPDATE teams SET use_case_id = ? WHERE id = ?', [useCaseId, req.params.id]);
     res.json({ message: 'Use case assigned' });
 });
 
@@ -407,91 +377,68 @@ app.put('/api/teams/:id/usecase', authMiddleware, adminOnly, (req, res) => {
 // SUBMISSION ROUTES
 // ==========================================
 
-// GET /api/submissions
-app.get('/api/submissions', authMiddleware, (req, res) => {
-    let query = 'SELECT * FROM submissions';
-    const params = [];
+app.get('/api/submissions', authMiddleware, async (req, res) => {
+    try {
+        let query = 'SELECT * FROM submissions';
+        const params = [];
 
-    // Team users only see their own submissions
-    if (req.user.role === 'team') {
-        query += ' WHERE team_number = ?';
-        params.push(req.user.teamNumber);
+        if (req.user.role === 'team') {
+            query += ' WHERE team_number = ?';
+            params.push(req.user.teamNumber);
+        }
+        query += ' ORDER BY timestamp DESC';
+
+        const [rows] = await pool.execute(query, params);
+        res.json(rows);
+    } catch (err) {
+        console.error('Submissions error:', err);
+        res.status(500).json({ error: 'Server error' });
     }
-
-    query += ' ORDER BY timestamp DESC';
-
-    const result = db.exec(query, params);
-    if (result.length === 0) return res.json([]);
-
-    const submissions = result[0].values.map(row => {
-        const sub = {};
-        result[0].columns.forEach((col, i) => sub[col] = row[i]);
-        return sub;
-    });
-
-    res.json(submissions);
 });
 
-// POST /api/submissions
-app.post('/api/submissions', authMiddleware, (req, res) => {
+app.post('/api/submissions', authMiddleware, async (req, res) => {
     const { githubUrl, requirementNumber, description, phase, useCaseId } = req.body;
 
     if (!githubUrl || !requirementNumber || !phase) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Get team info
-    const teamResult = db.exec(
-        'SELECT id, team_number, name FROM teams WHERE team_number = ?',
-        [req.user.teamNumber]
-    );
+    try {
+        const [teamRows] = await pool.execute('SELECT id, team_number, name FROM teams WHERE team_number = ?', [req.user.teamNumber]);
+        if (teamRows.length === 0) return res.status(404).json({ error: 'Team not found' });
 
-    if (teamResult.length === 0 || teamResult[0].values.length === 0) {
-        return res.status(404).json({ error: 'Team not found' });
+        const team = teamRows[0];
+        const [result] = await pool.execute(
+            'INSERT INTO submissions (team_id, team_number, team_name, use_case_id, github_url, requirement_number, description, phase) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [team.id, team.team_number, team.name, useCaseId || null, githubUrl, requirementNumber, description || '', phase]
+        );
+
+        res.json({ message: 'Submission added', id: result.insertId });
+    } catch (err) {
+        console.error('Submit error:', err);
+        res.status(500).json({ error: 'Server error' });
     }
-
-    const teamRow = teamResult[0].values[0];
-    const teamId = teamRow[0];
-    const teamNumber = teamRow[1];
-    const teamName = teamRow[2];
-
-    db.run(
-        `INSERT INTO submissions (team_id, team_number, team_name, use_case_id, github_url, requirement_number, description, phase)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [teamId, teamNumber, teamName, useCaseId || null, githubUrl, requirementNumber, description || '', phase]
-    );
-    saveDb();
-
-    const lastId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
-    res.json({ message: 'Submission added', id: lastId });
 });
 
-// DELETE /api/submissions/:id (admin only)
-app.delete('/api/submissions/:id', authMiddleware, adminOnly, (req, res) => {
-    db.run('DELETE FROM evaluation_results WHERE submission_id = ?', [req.params.id]);
-    db.run('DELETE FROM submissions WHERE id = ?', [req.params.id]);
-    saveDb();
-
+app.delete('/api/submissions/:id', authMiddleware, adminOnly, async (req, res) => {
+    await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [req.params.id]);
+    await pool.execute('DELETE FROM submissions WHERE id = ?', [req.params.id]);
     res.json({ message: 'Submission deleted' });
 });
 
-// DELETE /api/submissions (admin only — delete all or by team)
-app.delete('/api/submissions', authMiddleware, adminOnly, (req, res) => {
+app.delete('/api/submissions', authMiddleware, adminOnly, async (req, res) => {
     const { teamId } = req.query;
 
     if (teamId) {
-        const subIds = db.exec('SELECT id FROM submissions WHERE team_id = ?', [teamId]);
-        if (subIds.length > 0) {
-            subIds[0].values.forEach(row => {
-                db.run('DELETE FROM evaluation_results WHERE submission_id = ?', [row[0]]);
-            });
+        const [subs] = await pool.execute('SELECT id FROM submissions WHERE team_id = ?', [teamId]);
+        for (const sub of subs) {
+            await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [sub.id]);
         }
-        db.run('DELETE FROM submissions WHERE team_id = ?', [teamId]);
+        await pool.execute('DELETE FROM submissions WHERE team_id = ?', [teamId]);
     } else {
-        db.run('DELETE FROM evaluation_results');
-        db.run('DELETE FROM submissions');
+        await pool.execute('DELETE FROM evaluation_results');
+        await pool.execute('DELETE FROM submissions');
     }
-    saveDb();
 
     res.json({ message: 'Submissions deleted' });
 });
@@ -500,32 +447,19 @@ app.delete('/api/submissions', authMiddleware, adminOnly, (req, res) => {
 // EVALUATION ROUTES
 // ==========================================
 
-// GET /api/evaluations
-app.get('/api/evaluations', authMiddleware, (req, res) => {
-    const result = db.exec('SELECT * FROM evaluation_results ORDER BY evaluated_at DESC');
-    if (result.length === 0) return res.json([]);
-
-    const evals = result[0].values.map(row => {
-        const ev = {};
-        result[0].columns.forEach((col, i) => ev[col] = row[i]);
-        return ev;
-    });
-
-    res.json(evals);
+app.get('/api/evaluations', authMiddleware, async (req, res) => {
+    const [rows] = await pool.execute('SELECT * FROM evaluation_results ORDER BY evaluated_at DESC');
+    res.json(rows);
 });
 
-// POST /api/evaluations
-app.post('/api/evaluations', authMiddleware, adminOnly, (req, res) => {
+app.post('/api/evaluations', authMiddleware, adminOnly, async (req, res) => {
     const { submissionId, codeQuality, reqSatisfaction, innovation, totalScore, requirementsMet, totalRequirements, feedback } = req.body;
 
-    // Upsert: delete old result if exists, then insert new one
-    db.run('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
-    db.run(
-        `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
+    await pool.execute(
+        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [submissionId, codeQuality || 0, reqSatisfaction || 0, innovation || 0, totalScore || 0, requirementsMet || 0, totalRequirements || 10, feedback || '']
     );
-    saveDb();
 
     res.json({ message: 'Evaluation saved' });
 });
@@ -538,7 +472,6 @@ app.post('/api/evaluate', authMiddleware, adminOnly, async (req, res) => {
     let result;
 
     if (apiKey) {
-        // Try Cerebras AI evaluation
         const prompt = `You are an expert hackathon code evaluator. Evaluate this submission:
 **Use Case:** ${useCaseTitle || 'Unknown'}
 **Requirement:** ${requirementText || 'Unknown'}
@@ -551,18 +484,11 @@ Respond ONLY in valid JSON:
         try {
             const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`,
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                 body: JSON.stringify({
                     model: 'llama-3.3-70b',
-                    messages: [
-                        { role: 'system', content: 'Respond only with valid JSON.' },
-                        { role: 'user', content: prompt },
-                    ],
-                    max_tokens: 500,
-                    temperature: 0.3,
+                    messages: [{ role: 'system', content: 'Respond only with valid JSON.' }, { role: 'user', content: prompt }],
+                    max_tokens: 500, temperature: 0.3,
                 }),
             });
 
@@ -570,18 +496,13 @@ Respond ONLY in valid JSON:
                 const data = await response.json();
                 const content = data.choices?.[0]?.message?.content || '';
                 const jsonMatch = content.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    result = JSON.parse(jsonMatch[0]);
-                }
-            } else {
-                console.warn('Cerebras API returned error, using fallback scoring');
+                if (jsonMatch) result = JSON.parse(jsonMatch[0]);
             }
         } catch (error) {
-            console.warn('Cerebras API failed, using fallback scoring:', error.message);
+            console.warn('Cerebras API failed, using fallback:', error.message);
         }
     }
 
-    // Fallback: smart scoring based on submission data
     if (!result) {
         const seed = submissionId * 7 + (phase === 'Phase 3' ? 15 : phase === 'Phase 2' ? 8 : 0);
         const base = 55 + (seed % 30);
@@ -592,18 +513,15 @@ Respond ONLY in valid JSON:
             totalScore: Math.min(100, base + ((submissionId * 2) % 12)),
             requirementsMet: Math.min(10, 4 + (submissionId % 5)),
             totalRequirements: 10,
-            feedback: `Submission evaluated for ${phase}. The implementation shows ${base > 70 ? 'strong' : 'adequate'} understanding of the requirement. ${githubUrl ? 'Code repository submitted.' : 'Consider adding a repository link.'}`
+            feedback: `Submission evaluated for ${phase}. Implementation shows ${base > 70 ? 'strong' : 'adequate'} understanding.`
         };
     }
 
-    // Save to DB
-    db.run('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
-    db.run(
-        `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
+    await pool.execute(
+        'INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [submissionId, result.codeQuality || 0, result.reqSatisfaction || 0, result.innovation || 0, result.totalScore || 0, result.requirementsMet || 0, result.totalRequirements || 10, result.feedback || '']
     );
-    saveDb();
 
     res.json({ message: 'Evaluation complete', result });
 });
@@ -612,32 +530,19 @@ Respond ONLY in valid JSON:
 // MENTOR MARKS ROUTES
 // ==========================================
 
-// GET /api/mentor-marks
-app.get('/api/mentor-marks', authMiddleware, (req, res) => {
-    const result = db.exec('SELECT * FROM mentor_marks ORDER BY team_id');
-    if (result.length === 0) return res.json([]);
-
-    const marks = result[0].values.map(row => {
-        const m = {};
-        result[0].columns.forEach((col, i) => m[col] = row[i]);
-        return m;
-    });
-
-    res.json(marks);
+app.get('/api/mentor-marks', authMiddleware, async (req, res) => {
+    const [rows] = await pool.execute('SELECT * FROM mentor_marks ORDER BY team_id');
+    res.json(rows);
 });
 
-// POST /api/mentor-marks
-app.post('/api/mentor-marks', authMiddleware, adminOnly, (req, res) => {
+app.post('/api/mentor-marks', authMiddleware, adminOnly, async (req, res) => {
     const { teamId, phase1, phase2, phase3, innovation, presentation, teamwork } = req.body;
 
-    // Upsert
-    db.run('DELETE FROM mentor_marks WHERE team_id = ?', [teamId]);
-    db.run(
-        `INSERT INTO mentor_marks (team_id, phase1, phase2, phase3, innovation, presentation, teamwork)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    await pool.execute('DELETE FROM mentor_marks WHERE team_id = ?', [teamId]);
+    await pool.execute(
+        'INSERT INTO mentor_marks (team_id, phase1, phase2, phase3, innovation, presentation, teamwork) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [teamId, phase1 || 0, phase2 || 0, phase3 || 0, innovation || 0, presentation || 0, teamwork || 0]
     );
-    saveDb();
 
     res.json({ message: 'Mentor marks saved' });
 });
@@ -646,104 +551,82 @@ app.post('/api/mentor-marks', authMiddleware, adminOnly, (req, res) => {
 // LEADERBOARD ROUTE
 // ==========================================
 
-// GET /api/leaderboard
-app.get('/api/leaderboard', authMiddleware, (req, res) => {
-    const teams = db.exec('SELECT * FROM teams ORDER BY team_number');
-    if (teams.length === 0) return res.json([]);
+app.get('/api/leaderboard', authMiddleware, async (req, res) => {
+    try {
+        const [teams] = await pool.execute('SELECT * FROM teams ORDER BY team_number');
 
-    const leaderboard = teams[0].values.map(row => {
-        const team = {};
-        teams[0].columns.forEach((col, i) => team[col] = row[i]);
+        const leaderboard = [];
+        for (const team of teams) {
+            const [evalRows] = await pool.execute(
+                `SELECT AVG(e.total_score) as avg_score, SUM(e.requirements_met) as total_met, SUM(e.total_requirements) as total_reqs, COUNT(*) as sub_count
+                 FROM evaluation_results e JOIN submissions s ON e.submission_id = s.id WHERE s.team_id = ?`,
+                [team.id]
+            );
 
-        // AI scores
-        const evalResult = db.exec(
-            `SELECT AVG(e.total_score) as avg_score, SUM(e.requirements_met) as total_met, SUM(e.total_requirements) as total_reqs, COUNT(*) as sub_count
-       FROM evaluation_results e
-       JOIN submissions s ON e.submission_id = s.id
-       WHERE s.team_id = ?`,
-            [team.id]
-        );
+            let aiScore = 0, reqSatisfied = 0, totalReqs = 0;
+            if (evalRows[0].avg_score !== null) {
+                aiScore = Math.round(evalRows[0].avg_score);
+                reqSatisfied = evalRows[0].total_met || 0;
+                totalReqs = evalRows[0].total_reqs || 0;
+            }
 
-        let aiScore = 0, reqSatisfied = 0, totalReqs = 0, subCount = 0;
-        if (evalResult.length > 0 && evalResult[0].values[0][0] !== null) {
-            aiScore = Math.round(evalResult[0].values[0][0]);
-            reqSatisfied = evalResult[0].values[0][1] || 0;
-            totalReqs = evalResult[0].values[0][2] || 0;
-            subCount = evalResult[0].values[0][3] || 0;
+            const [mentorRows] = await pool.execute('SELECT * FROM mentor_marks WHERE team_id = ?', [team.id]);
+            let mentorScore = 0;
+            if (mentorRows.length > 0) {
+                const m = mentorRows[0];
+                mentorScore = (m.phase1 || 0) + (m.phase2 || 0) + (m.phase3 || 0) + (m.innovation || 0) + (m.presentation || 0) + (m.teamwork || 0);
+            }
+
+            const [subRows] = await pool.execute('SELECT COUNT(*) as cnt FROM submissions WHERE team_id = ?', [team.id]);
+
+            leaderboard.push({
+                id: team.id,
+                teamNumber: team.team_number,
+                name: team.name,
+                useCaseId: team.use_case_id,
+                aiScore, mentorScore,
+                totalScore: aiScore + mentorScore,
+                submissionCount: subRows[0].cnt,
+                reqSatisfied, totalReqs,
+            });
         }
 
-        // Mentor scores
-        const mentorResult = db.exec('SELECT * FROM mentor_marks WHERE team_id = ?', [team.id]);
-        let mentorScore = 0;
-        if (mentorResult.length > 0 && mentorResult[0].values.length > 0) {
-            const m = {};
-            mentorResult[0].columns.forEach((col, i) => m[col] = mentorResult[0].values[0][i]);
-            mentorScore = (m.phase1 || 0) + (m.phase2 || 0) + (m.phase3 || 0) + (m.innovation || 0) + (m.presentation || 0) + (m.teamwork || 0);
-        }
-
-        // Total submissions
-        const subResult = db.exec('SELECT COUNT(*) FROM submissions WHERE team_id = ?', [team.id]);
-        const totalSubs = subResult.length > 0 ? subResult[0].values[0][0] : 0;
-
-        return {
-            id: team.id,
-            teamNumber: team.team_number,
-            name: team.name,
-            useCaseId: team.use_case_id,
-            aiScore,
-            mentorScore,
-            totalScore: aiScore + mentorScore,
-            submissionCount: totalSubs,
-            reqSatisfied,
-            totalReqs,
-        };
-    });
-
-    leaderboard.sort((a, b) => b.totalScore - a.totalScore);
-    res.json(leaderboard);
+        leaderboard.sort((a, b) => b.totalScore - a.totalScore);
+        res.json(leaderboard);
+    } catch (err) {
+        console.error('Leaderboard error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 // ==========================================
 // ADMIN ROUTES
 // ==========================================
 
-// GET /api/admin/stats
-app.get('/api/admin/stats', authMiddleware, adminOnly, (req, res) => {
-    const totalTeams = db.exec('SELECT COUNT(*) FROM teams')[0].values[0][0];
-    const assignedTeams = db.exec('SELECT COUNT(*) FROM teams WHERE use_case_id IS NOT NULL')[0].values[0][0];
-    const totalSubmissions = db.exec('SELECT COUNT(*) FROM submissions')[0].values[0][0];
-    const evaluatedCount = db.exec('SELECT COUNT(*) FROM evaluation_results')[0].values[0][0];
-    const markedTeams = db.exec('SELECT COUNT(*) FROM mentor_marks')[0].values[0][0];
-    const registeredTeams = db.exec("SELECT COUNT(*) FROM teams WHERE members != '[]'")[0].values[0][0];
+app.get('/api/admin/stats', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const [[{ cnt: totalTeams }]] = await pool.execute('SELECT COUNT(*) as cnt FROM teams');
+        const [[{ cnt: assignedTeams }]] = await pool.execute('SELECT COUNT(*) as cnt FROM teams WHERE use_case_id IS NOT NULL');
+        const [[{ cnt: totalSubmissions }]] = await pool.execute('SELECT COUNT(*) as cnt FROM submissions');
+        const [[{ cnt: evaluatedCount }]] = await pool.execute('SELECT COUNT(*) as cnt FROM evaluation_results');
+        const [[{ cnt: markedTeams }]] = await pool.execute('SELECT COUNT(*) as cnt FROM mentor_marks');
+        const [[{ cnt: registeredTeams }]] = await pool.execute("SELECT COUNT(*) as cnt FROM teams WHERE members != '[]'");
 
-    res.json({
-        totalTeams,
-        assignedTeams,
-        totalSubmissions,
-        evaluatedCount,
-        markedTeams,
-        registeredTeams,
-    });
+        res.json({ totalTeams, assignedTeams, totalSubmissions, evaluatedCount, markedTeams, registeredTeams });
+    } catch (err) {
+        console.error('Stats error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
-// GET /api/admin/users — list all users (admin)
-app.get('/api/admin/users', authMiddleware, adminOnly, (req, res) => {
-    const result = db.exec('SELECT id, username, role, team_number, team_name, created_at FROM users ORDER BY id');
-    if (result.length === 0) return res.json([]);
-
-    const users = result[0].values.map(row => {
-        const u = {};
-        result[0].columns.forEach((col, i) => u[col] = row[i]);
-        return u;
-    });
-
-    res.json(users);
+app.get('/api/admin/users', authMiddleware, adminOnly, async (req, res) => {
+    const [rows] = await pool.execute('SELECT id, username, role, team_number, team_name, created_at FROM users ORDER BY id');
+    res.json(rows);
 });
 
 // ==========================================
 // SPA FALLBACK — must be AFTER all API routes
 // ==========================================
-// For any non-API route, serve index.html (React Router handles client-side routing)
 if (existsSync(DIST_PATH)) {
     app.use((req, res, next) => {
         if (req.method === 'GET' && !req.path.startsWith('/api')) {
@@ -764,16 +647,15 @@ async function start() {
     app.listen(PORT, () => {
         console.log('');
         console.log('🚀 ═══════════════════════════════════════════');
-        console.log('   HackMaster 3.0 Backend Server');
+        console.log('   HackMaster 3.0 — TiDB Cloud Edition');
         console.log('   SMVEC AI&DS — Healthcare Hackathon 2026');
         console.log('═══════════════════════════════════════════════');
-        console.log(`   🌐 Server:  http://localhost:${PORT}`);
-        console.log(`   📂 Database: ${DB_PATH}`);
+        console.log(`   🌐 Server:   http://localhost:${PORT}`);
+        console.log(`   ☁️  Database:  TiDB Cloud`);
         console.log(`   📦 Frontend: ${existsSync(DIST_PATH) ? 'Serving from dist/' : 'Not built (run npm run build)'}`);
         console.log('');
-        console.log('   🔑 Admin Login: admin / hackmaster2026');
-        console.log('   📋 Team passwords were printed on first DB seed.');
-        console.log('   💡 Use admin panel to reset team passwords if needed.');
+        console.log('   🔑 Admin: admin / hackmaster2026');
+        console.log('   👥 Teams: team1 / team1@hack ... team28 / team28@hack');
         console.log('═══════════════════════════════════════════════');
         console.log('');
     });
