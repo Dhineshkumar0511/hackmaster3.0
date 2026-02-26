@@ -11,6 +11,7 @@ const navItems = [
     { path: '/team/submission', icon: '📤', label: 'My Submissions' },
     { path: '/team/leaderboard', icon: '🏆', label: 'Leaderboard' },
     { path: '/team/mentor-marks', icon: '📊', label: 'Mentor Marks' },
+    { path: '/team/tasks', icon: '✅', label: 'Team Tasks' },
 ];
 
 export default function TeamLayout() {

@@ -9,10 +9,12 @@ const navItems = [
     { path: '/admin/submissions', icon: '📤', label: 'Submissions' },
     { path: '/admin/leaderboard', icon: '🏆', label: 'Leaderboard' },
     { path: '/admin/mentor-marks', icon: '✍️', label: 'Mentor Marks' },
+    { path: '/admin/analytics', icon: '📈', label: 'Analytics' },
+    { path: '/admin/tasks', icon: '✅', label: 'Team Tasks' },
 ];
 
 export default function AdminLayout() {
-    const { user, logout } = useAppContext();
+    const { user, logout, selectedBatch, setSelectedBatch } = useAppContext();
     const navigate = useNavigate();
 
     const handleLogout = () => {
@@ -28,6 +30,7 @@ export default function AdminLayout() {
                     <span className="version">ADMIN</span>
                     <p className="subtitle">SMVEC AI&DS Dept<br />Control Panel</p>
                 </div>
+
 
                 <nav className="sidebar-nav">
                     {navItems.map(item => (

@@ -24,7 +24,7 @@ export default function AdminSubmissions() {
             const requirement = useCase?.requirements?.[submission.requirement_number - 1] || 'Unknown';
 
             const token = localStorage.getItem('hackmaster_token');
-            const res = await fetch('/api/evaluate', {
+            const res = await fetch('/api/evaluations/evaluate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -43,12 +43,41 @@ export default function AdminSubmissions() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Evaluation failed');
 
-            showToast('✅ AI Evaluation complete!', 'success');
-            fetchEvaluations();
+            // Start Polling for Job Status
+            const jobId = data.jobId;
+            let pollCount = 0;
+            const poll = setInterval(async () => {
+                pollCount++;
+                try {
+                    const statusRes = await fetch(`/api/evaluations/status/${jobId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const job = await statusRes.json();
+
+                    if (job.status === 'completed') {
+                        clearInterval(poll);
+                        showToast(`✅ Evaluation complete for Team #${submission.team_number}`, 'success');
+                        fetchEvaluations();
+                        setEvaluatingId(null);
+                    } else if (job.status === 'failed') {
+                        clearInterval(poll);
+                        showToast(`❌ Evaluation failed: ${job.error}`, 'error');
+                        setEvaluatingId(null);
+                    } else if (pollCount > 60) { // 1 minute timeout
+                        clearInterval(poll);
+                        showToast('⌛ Evaluation timed out. Try again later.', 'error');
+                        setEvaluatingId(null);
+                    }
+                } catch (e) {
+                    clearInterval(poll);
+                    setEvaluatingId(null);
+                }
+            }, 2000); // Poll every 2 seconds
+
         } catch (error) {
             showToast(error.message, 'error');
+            setEvaluatingId(null);
         }
-        setEvaluatingId(null);
     };
 
     // ... handleEvaluateAll and filteredSubmissions logic ...

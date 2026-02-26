@@ -1,5 +1,7 @@
 import React from 'react';
 import { useAppContext } from '../../App';
+import { generateEvaluationPDF } from '../../utils/pdfGenerator';
+import { FileDown } from 'lucide-react';
 
 const PHASE_CATEGORIES = [
     { key: 'phase1', label: 'Phase 1', max: 10 },
@@ -69,6 +71,13 @@ export default function TeamMentorMarks() {
                                 <div style={{ textAlign: 'right' }}>
                                     <div className="gradient-text" style={{ fontSize: '2.5rem', fontWeight: 900, lineHeight: 1 }}>{grandTotal}</div>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Consolidated Total</div>
+                                    <button
+                                        className="btn btn-sm"
+                                        style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem' }}
+                                        onClick={() => generateEvaluationPDF(team, tEvals[0] || { total_score: grandTotal, feedback: 'Consolidated report generated from mentor and AI scores.', evaluated_at: new Date() }, uc)}
+                                    >
+                                        <FileDown size={14} /> Download PDF Report
+                                    </button>
                                 </div>
                             </div>
 

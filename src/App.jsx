@@ -21,6 +21,9 @@ import AdminTeamDetails from './pages/admin/AdminTeamDetails';
 import AdminSubmissions from './pages/admin/AdminSubmissions';
 import AdminLeaderboard from './pages/admin/AdminLeaderboard';
 import AdminMentorMarks from './pages/admin/AdminMentorMarks';
+import AdminAnalytics from './pages/admin/AdminAnalytics';
+import AdminTasks from './pages/admin/AdminTasks';
+import TeamTasks from './pages/team/TeamTasks';
 
 // Data
 import { USE_CASES, USE_CASES_2ND_YEAR, HACKATHON_INFO, BATCHES, getUseCasesByBatch } from './data/constants';
@@ -438,6 +441,7 @@ function App() {
                         <Route path="submission" element={<TeamSubmission />} />
                         <Route path="leaderboard" element={<TeamLeaderboard />} />
                         <Route path="mentor-marks" element={<TeamMentorMarks />} />
+                        <Route path="tasks" element={<TeamTasks />} />
                     </Route>
 
                     {/* Admin Routes */}
@@ -448,6 +452,8 @@ function App() {
                         <Route path="submissions" element={<AdminSubmissions />} />
                         <Route path="leaderboard" element={<AdminLeaderboard />} />
                         <Route path="mentor-marks" element={<AdminMentorMarks />} />
+                        <Route path="analytics" element={<AdminAnalytics />} />
+                        <Route path="tasks" element={<AdminTasks />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/" />} />

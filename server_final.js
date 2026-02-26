@@ -84,7 +84,7 @@ app.get('/api/admin/stats', async (req, res) => {
 // SPA Fallback
 if (existsSync(DIST_PATH)) {
     app.use(express.static(DIST_PATH));
-    app.use((req, res) => res.sendFile(join(DIST_PATH, 'index.html')));
+    app.get('*', (req, res) => res.sendFile(join(DIST_PATH, 'index.html')));
 }
 
 // Start Server
