@@ -9,8 +9,8 @@ const navItems = [
     { path: '/admin/submissions', icon: '📤', label: 'Submissions' },
     { path: '/admin/leaderboard', icon: '🏆', label: 'Leaderboard' },
     { path: '/admin/mentor-marks', icon: '✍️', label: 'Mentor Marks' },
-    { path: '/admin/analytics', icon: '📈', label: 'Analytics' },
-    { path: '/admin/tasks', icon: '✅', label: 'Team Tasks' },
+    { path: '/admin/certificates', icon: '📜', label: 'Certificates' },
+    { path: '/admin/tasks', icon: '✅', label: 'Global Roadmap' },
 ];
 
 export default function AdminLayout() {

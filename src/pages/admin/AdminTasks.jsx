@@ -194,7 +194,7 @@ export default function AdminTasks() {
                         >
                             <option value="2027">Batch 2027</option>
                             <option value="2028">Batch 2028</option>
-                            <option value="2029">Batch 2029</option>
+
                         </select>
                     </div>
 

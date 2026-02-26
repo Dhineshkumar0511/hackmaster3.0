@@ -23,7 +23,9 @@ import evaluationRoutes from './server/routes/evaluations.js';
 import mentorMarkRoutes from './server/routes/mentorMarks.js';
 import taskRoutes from './server/routes/tasks.js';
 import analyticsRoutes from './server/routes/analytics.js';
+import supportRoutes from './server/routes/support.js';
 import settingsRoutes from './server/routes/settings.js';
+import certificateRoutes from './server/routes/certificates.js';
 
 dotenv.config();
 
@@ -44,7 +46,9 @@ app.use('/api/evaluations', evaluationRoutes);
 app.use('/api/mentor-marks', mentorMarkRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/admin/analytics', analyticsRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/certificates', certificateRoutes);
 
 // Global Stats & Leaderboard
 app.get('/api/leaderboard', async (req, res) => {

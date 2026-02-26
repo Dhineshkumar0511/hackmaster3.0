@@ -2,8 +2,9 @@ import React from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminHome() {
-    const { teams, submissions, mentorMarks, evaluationResults, hackathonInfo, batches, selectedBatch, setSelectedBatch } = useAppContext();
+    const { teams, submissions, mentorMarks, evaluationResults, certificates, hackathonInfo, batches, selectedBatch, setSelectedBatch } = useAppContext();
 
+    const issuedCertificates = certificates.length;
     const totalSubmissions = submissions.length;
     const evaluatedCount = Object.keys(evaluationResults).length;
     const teamsWithAssignment = teams.filter(t => t.use_case_id).length;
@@ -26,6 +27,7 @@ export default function AdminHome() {
 
     return (
         <div>
+
             <div className="hero-banner" style={{ marginBottom: 'var(--space-2xl)' }}>
                 <h1><span className="gradient-text">ADMIN</span> DASHBOARD</h1>
                 <p className="hero-subtitle">HackMaster 3.0 — {hackathonInfo.college} • {hackathonInfo.department}</p>

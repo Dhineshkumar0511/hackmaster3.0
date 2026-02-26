@@ -2,7 +2,7 @@
 import pool from '../db.js';
 
 export async function initDb() {
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(255) UNIQUE NOT NULL,
@@ -15,7 +15,7 @@ export async function initDb() {
     )
   `);
 
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS teams (
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_number INT NOT NULL,
@@ -29,7 +29,7 @@ export async function initDb() {
     )
   `);
 
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS submissions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_id INT NOT NULL,
@@ -44,7 +44,7 @@ export async function initDb() {
     )
   `);
 
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS evaluation_results (
       id INT AUTO_INCREMENT PRIMARY KEY,
       submission_id INT UNIQUE NOT NULL,
@@ -62,7 +62,7 @@ export async function initDb() {
     )
   `);
 
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS mentor_marks (
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_id INT UNIQUE NOT NULL,
@@ -75,14 +75,14 @@ export async function initDb() {
     )
   `);
 
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS settings (
       \`key\` VARCHAR(255) PRIMARY KEY,
       value TEXT NOT NULL
     )
   `);
 
-    await pool.execute(`
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS team_tasks (
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_id INT NOT NULL,
@@ -95,5 +95,31 @@ export async function initDb() {
     )
   `);
 
-    console.log('✅ Database Schema Verified');
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS support_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      message TEXT,
+      status VARCHAR(50) DEFAULT 'pending',
+      mentor_id INT,
+      mentor_name VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TIMESTAMP NULL,
+      FOREIGN KEY (team_id) REFERENCES teams(id)
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS certificates (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (team_id) REFERENCES teams(id),
+      UNIQUE KEY unique_team_cert (team_id, type)
+    )
+  `);
+
+  console.log('✅ Database Schema Verified');
 }

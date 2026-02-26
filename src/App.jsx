@@ -23,7 +23,9 @@ import AdminLeaderboard from './pages/admin/AdminLeaderboard';
 import AdminMentorMarks from './pages/admin/AdminMentorMarks';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminTasks from './pages/admin/AdminTasks';
+import AdminCertificates from './pages/admin/AdminCertificates';
 import TeamTasks from './pages/team/TeamTasks';
+import TeamCertificates from './pages/team/TeamCertificates';
 
 // Data
 import { USE_CASES, USE_CASES_2ND_YEAR, HACKATHON_INFO, BATCHES, getUseCasesByBatch } from './data/constants';
@@ -77,6 +79,7 @@ function App() {
     const [submissions, setSubmissions] = useState([]);
     const [evaluationResults, setEvaluationResults] = useState({});
     const [mentorMarks, setMentorMarks] = useState({});
+    const [certificates, setCertificates] = useState([]);
     const [unlockedRequirements, setUnlockedRequirementsState] = useState(5);
     const [selectedBatch, setSelectedBatch] = useState('2027');
     const [toast, setToast] = useState(null);
@@ -163,6 +166,16 @@ function App() {
         }
     }, [selectedBatch, user]);
 
+    const fetchCertificates = useCallback(async () => {
+        try {
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/certificates?batch=${batch}`);
+            setCertificates(data);
+        } catch (err) {
+            console.error('Error fetching certificates:', err);
+        }
+    }, [selectedBatch, user]);
+
     const fetchSettings = useCallback(async () => {
         try {
             const data = await apiFetch('/settings');
@@ -188,9 +201,16 @@ function App() {
     const refreshAll = useCallback(async () => {
         if (!user) return;
         setLoading(true);
-        await Promise.all([fetchTeams(), fetchSubmissions(), fetchEvaluations(), fetchMentorMarks(), fetchSettings()]);
+        await Promise.all([
+            fetchTeams(),
+            fetchSubmissions(),
+            fetchEvaluations(),
+            fetchMentorMarks(),
+            fetchCertificates(),
+            fetchSettings()
+        ]);
         setLoading(false);
-    }, [user, fetchTeams, fetchSubmissions, fetchEvaluations, fetchMentorMarks, fetchSettings]);
+    }, [user, fetchTeams, fetchSubmissions, fetchEvaluations, fetchMentorMarks, fetchCertificates, fetchSettings]);
 
     useEffect(() => {
         if (user) refreshAll();
@@ -387,6 +407,7 @@ function App() {
         submissions,
         evaluationResults,
         mentorMarks,
+        certificates,
         unlockedRequirements,
         setUnlockedRequirements,
         useCases: USE_CASES,
@@ -403,6 +424,7 @@ function App() {
         fetchTeams,
         fetchSubmissions,
         fetchEvaluations,
+        fetchCertificates,
         updateTeamDetails,
         assignUseCase,
         clearTeamRegistration,
@@ -441,6 +463,7 @@ function App() {
                         <Route path="submission" element={<TeamSubmission />} />
                         <Route path="leaderboard" element={<TeamLeaderboard />} />
                         <Route path="mentor-marks" element={<TeamMentorMarks />} />
+                        <Route path="certificates" element={<TeamCertificates />} />
                         <Route path="tasks" element={<TeamTasks />} />
                     </Route>
 
@@ -453,6 +476,7 @@ function App() {
                         <Route path="leaderboard" element={<AdminLeaderboard />} />
                         <Route path="mentor-marks" element={<AdminMentorMarks />} />
                         <Route path="analytics" element={<AdminAnalytics />} />
+                        <Route path="certificates" element={<AdminCertificates />} />
                         <Route path="tasks" element={<AdminTasks />} />
                     </Route>
 
