@@ -12,25 +12,42 @@ export async function seedInitialData() {
     }
 
     const teamNames = [
-        'Vitality Visionaries', 'Heartbeat Heroes', 'Neural Nexus', 'Bio Bridge',
-        'Pulse Pioneers', 'Medi Mind', 'Care Coders', 'Health Hackers',
-        'Life Line', 'Omni Health', 'Swift Surgeons', 'Data Doctors',
-        'Genome Guiders', 'Aura AI', 'Nano Nurses', 'Zenith Health',
-        'Cyber Care', 'Bio Blitz', 'Medi Metrics', 'Heal Hub',
-        'Organ Ops', 'Pharma Phriends', 'Clinic Core', 'Radiant Rays',
-        'Sensei Systems', 'Logic Labs', 'Aero Med', 'Echo Experts'
+        "Shadow Strikers", "Quantum Falcons", "Iron Titans", "Neon Ninjas", "Thunder Wolves",
+        "Crimson Raiders", "Pixel Predators", "Velocity Vipers", "Storm Breakers", "Silent Assassins",
+        "Mystic Mavericks", "Turbo Tornadoes", "Cyber Spartans", "Rogue Warriors", "Alpha Avengers",
+        "Frost Giants", "Blaze Brigade", "Phantom Forces", "Inferno Squad", "Titan Legends",
+        "Rapid Raptors", "Omega Knights", "The Code Crushers", "Gravity Gladiators", "Skyline Sharks",
+        "Dragon Dynasty", "Silver Sabers", "Voltage Vikings", "Ironclad Crew", "Zenith Zephyrs",
+        "Atomic Arrows", "Nova Navigators", "Chaos Commanders", "Stealth Storm", "Firestorm Falcons",
+        "Echo Enforcers", "Night Howlers", "The Brainstormers", "Hyper Hawks", "Titan Tribe",
+        "Obsidian Order", "Radiant Rebels", "Apex Predators", "Turbo Trailblazers", "Cosmic Crushers",
+        "Lunar Pathfinders"
     ];
 
     const [[{ b27cnt }]] = await pool.execute('SELECT COUNT(*) as cnt FROM teams WHERE batch = "2027"');
     if (b27cnt === 0) {
-        console.log('🌱 Seeding Batch 2027 Teams...');
-        for (let i = 0; i < 28; i++) {
+        console.log(`🌱 Updating Batch 2027 Teams (${teamNames.length} total)...`);
+        await pool.execute("SET FOREIGN_KEY_CHECKS = 0");
+        await pool.execute("DELETE FROM users WHERE role = 'team' AND batch = '2027'");
+        await pool.execute("DELETE FROM teams WHERE batch = '2027'");
+
+        for (let i = 0; i < teamNames.length; i++) {
             const teamNum = i + 1;
             const name = teamNames[i];
-            const pass = bcrypt.hashSync(`team${teamNum}@hack`, 10);
-            await pool.execute("INSERT INTO users (username, password, role, team_number, team_name, batch) VALUES (?, ?, 'team', ?, ?, '2027')", [`team${teamNum}`, pass, teamNum, name]);
-            await pool.execute("INSERT INTO teams (team_number, name, batch) VALUES (?, ?, '2027')", [teamNum, name]);
+            const username = `t27-${String(teamNum).padStart(3, '0')}`;
+            const plainPass = `team27@${String(teamNum).padStart(3, '0')}`;
+            const pass = bcrypt.hashSync(plainPass, 10);
+
+            await pool.execute(
+                "INSERT INTO users (username, password, role, team_number, team_name, batch) VALUES (?, ?, 'team', ?, ?, '2027')",
+                [username, pass, teamNum, name]
+            );
+            await pool.execute(
+                "INSERT INTO teams (team_number, name, batch) VALUES (?, ?, '2027')",
+                [teamNum, name]
+            );
         }
+        await pool.execute("SET FOREIGN_KEY_CHECKS = 1");
     }
 
     const teamNames2028 = [

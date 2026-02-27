@@ -25,6 +25,7 @@ import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminTasks from './pages/admin/AdminTasks';
 import AdminCertificates from './pages/admin/AdminCertificates';
 import AdminUseCases from './pages/admin/AdminUseCases';
+import AdminUserManagement from './pages/admin/AdminUserManagement';
 import TeamTasks from './pages/team/TeamTasks';
 import TeamCertificates from './pages/team/TeamCertificates';
 
@@ -522,6 +523,7 @@ function App() {
                         <Route path="analytics" element={<AdminAnalytics />} />
                         <Route path="certificates" element={<AdminCertificates />} />
                         <Route path="tasks" element={<AdminTasks />} />
+                        <Route path="users" element={<AdminUserManagement />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/" />} />

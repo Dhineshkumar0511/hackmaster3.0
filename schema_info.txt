@@ -1,0 +1,11 @@
+Submissions columns:
+id | int | NO | PRI | null
+team_id | int | NO |  | null
+team_number | int | NO |  | null
+team_name | varchar(255) | YES |  | null
+use_case_id | int | YES |  | null
+github_url | text | NO |  | null
+requirement_number | int | NO |  | null
+description | text | YES |  | null
+phase | varchar(50) | NO |  | null
+timestamp | timestamp | YES |  | CURRENT_TIMESTAMP

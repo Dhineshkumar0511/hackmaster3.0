@@ -1,0 +1,20 @@
+Mentor Marks columns:
+id | int | NO | PRI | null
+team_id | int | NO | UNI | null
+phase1 | int | YES |  | 0
+phase2 | int | YES |  | 0
+phase3 | int | YES |  | 0
+innovation | int | YES |  | 0
+presentation | int | YES |  | 0
+teamwork | int | YES |  | 0
+updated_at | timestamp | YES |  | CURRENT_TIMESTAMP
+req1 | int | YES |  | 0
+req2 | int | YES |  | 0
+req3 | int | YES |  | 0
+req4 | int | YES |  | 0
+req5 | int | YES |  | 0
+req6 | int | YES |  | 0
+req7 | int | YES |  | 0
+req8 | int | YES |  | 0
+req9 | int | YES |  | 0
+req10 | int | YES |  | 0

@@ -1,0 +1,13 @@
+Evaluation Results columns:
+id | int | NO | PRI | null
+submission_id | int | NO | UNI | null
+code_quality | int | YES |  | 0
+req_satisfaction | int | YES |  | 0
+innovation | int | YES |  | 0
+total_score | int | YES |  | 0
+requirements_met | int | YES |  | 0
+total_requirements | int | YES |  | 10
+feedback | text | YES |  | null
+evaluated_at | timestamp | YES |  | CURRENT_TIMESTAMP
+detailed_report | longtext | YES |  | null
+file_tree | longtext | YES |  | null

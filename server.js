@@ -27,6 +27,7 @@ import supportRoutes from './server/routes/support.js';
 import settingsRoutes from './server/routes/settings.js';
 import certificateRoutes from './server/routes/certificates.js';
 import useCaseRoutes from './server/routes/useCases.js';
+import userRoutes from './server/routes/users.js';
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ app.use('/api/support', supportRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/use-cases', useCaseRoutes);
+app.use('/api/users', userRoutes);
 
 // Global Stats & Leaderboard
 app.get('/api/leaderboard', async (req, res) => {

@@ -12,6 +12,7 @@ const navItems = [
     { path: '/admin/mentor-marks', icon: '✍️', label: 'Mentor Marks' },
     { path: '/admin/certificates', icon: '📜', label: 'Certificates' },
     { path: '/admin/tasks', icon: '✅', label: 'Global Roadmap' },
+    { path: '/admin/users', icon: '👤', label: 'Manage Users' },
 ];
 
 export default function AdminLayout() {

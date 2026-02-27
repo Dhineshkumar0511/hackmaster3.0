@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext } from '../../App';
-import { Loader2, CheckCircle, Clock, Trash2, PlayCircle, Filter, Calendar, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle, Clock, Trash2, PlayCircle, Filter, Calendar, AlertCircle, ChevronDown, Trello, ListFilter, Layout } from 'lucide-react';
 
 export default function AdminTasks() {
     const { selectedBatch, setSelectedBatch, teams, showToast } = useAppContext();
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTeam, setSelectedTeam] = useState('all');
+
+    const [viewMode, setViewMode] = useState('board'); // 'board' or 'list'
 
     useEffect(() => {
         fetchAllTasks();
@@ -25,9 +27,14 @@ export default function AdminTasks() {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
-            setTasks(data);
+            if (res.ok && Array.isArray(data)) {
+                setTasks(data);
+            } else {
+                setTasks([]);
+            }
         } catch (err) {
             console.error(err);
+            setTasks([]);
         }
         setLoading(false);
     };
@@ -55,10 +62,12 @@ export default function AdminTasks() {
         return '#3A86FF';
     };
 
-    const getStatusIcon = (status) => {
-        if (status === 'done') return <CheckCircle color="#00C49F" size={20} />;
-        if (status === 'progress') return <PlayCircle color="#FFBE0B" size={20} />;
-        return <Clock color="rgba(255,255,255,0.3)" size={20} />;
+    const getStatusStyle = (status) => {
+        switch (status) {
+            case 'done': return { bg: 'rgba(0, 245, 160, 0.1)', color: 'var(--accent-green)', text: 'DONE' };
+            case 'progress': return { bg: 'rgba(255, 190, 11, 0.1)', color: 'var(--accent-orange)', text: 'IN PROGRESS' };
+            default: return { bg: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)', text: 'TO DO' };
+        }
     };
 
     const KanbanColumn = ({ title, status, items, accent, subtitle }) => (
@@ -147,7 +156,9 @@ export default function AdminTasks() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <span style={{ fontSize: '0.65rem', fontWeight: 900, color: getPriorityColor(task.priority), background: `${getPriorityColor(task.priority)}15`, padding: '2px 8px', borderRadius: '4px' }}>{task.priority.toUpperCase()}</span>
-                                    {getStatusIcon(task.status)}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        {task.status === 'done' ? <CheckCircle color="#00C49F" size={20} /> : task.status === 'progress' ? <PlayCircle color="#FFBE0B" size={20} /> : <Clock color="rgba(255,255,255,0.3)" size={20} />}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -163,54 +174,201 @@ export default function AdminTasks() {
         </div>
     );
 
+    const TaskListView = () => {
+        const groupedTasks = useMemo(() => {
+            const groups = {};
+            tasks.forEach(task => {
+                const team = teams.find(t => t.id === task.team_id);
+                const groupKey = team ? `Team #${team.team_number} | ${team.name}` : 'Unknown Team';
+                if (!groups[groupKey]) groups[groupKey] = [];
+                groups[groupKey].push(task);
+            });
+            return groups;
+        }, [tasks, teams]);
+
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                {Object.entries(groupedTasks).map(([groupName, teamTasks]) => (
+                    // ... existing team task group rendering ...
+                    <div key={groupName} className="glass-card" style={{ padding: '0', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ padding: '15px 25px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '8px', height: '20px', borderRadius: '4px', background: 'var(--gradient-primary)' }}></div>
+                                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, letterSpacing: '0.5px' }}>{groupName}</h3>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '6px' }}>{teamTasks.length} tasks</span>
+                            </div>
+                        </div>
+                        <div style={{ width: '100%', overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                <thead style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '1px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                    <tr>
+                                        <th style={{ padding: '15px 25px', width: '40px' }}><input type="checkbox" disabled /></th>
+                                        <th style={{ padding: '15px 15px' }}>Work</th>
+                                        <th style={{ padding: '15px 15px' }}>Assignee</th>
+                                        <th style={{ padding: '15px 15px' }}>Reporter</th>
+                                        <th style={{ padding: '15px 15px', width: '100px' }}>Priority</th>
+                                        <th style={{ padding: '15px 15px', width: '160px' }}>Status</th>
+                                        <th style={{ padding: '15px 25px', width: '60px' }}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {teamTasks.map(task => {
+                                        const status = getStatusStyle(task.status);
+                                        const team = teams.find(t => t.id === task.team_id);
+                                        const mentor = team?.mentor || {};
+                                        return (
+                                            <tr key={task.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s' }}>
+                                                <td style={{ padding: '18px 25px' }}><input type="checkbox" /></td>
+                                                <td style={{ padding: '18px 15px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                        <div style={{ minWidth: '24px', height: '24px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <Layout size={14} color="var(--accent-primary)" />
+                                                        </div>
+                                                        <div>
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: 800, marginBottom: '2px' }}>HM-{task.id}</div>
+                                                            <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{task.title}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '18px 15px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 900 }}>
+                                                            {task.assigned_to?.[0] || '?'}
+                                                        </div>
+                                                        <span style={{ fontSize: '0.85rem' }}>{task.assigned_to || 'Unassigned'}</span>
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '18px 15px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(0, 245, 160, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 900, color: 'var(--accent-green)' }}>
+                                                            {mentor.name?.[0] || 'A'}
+                                                        </div>
+                                                        <span style={{ fontSize: '0.85rem' }}>{mentor.name || 'Admin'}</span>
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '18px 15px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: getPriorityColor(task.priority) }}>
+                                                        <div style={{ width: '12px', height: '3px', borderRadius: '2px', background: getPriorityColor(task.priority) }}></div>
+                                                        {task.priority.toUpperCase()}
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '18px 15px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 14px', background: status.bg, color: status.color, borderRadius: '8px', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.5px', border: `1px solid ${status.color}22` }}>
+                                                        {status.text}
+                                                        <ChevronDown size={14} style={{ opacity: 0.5 }} />
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '18px 25px' }}>
+                                                    <button onClick={() => deleteTask(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }} onMouseOver={e => e.currentTarget.style.color = '#FF006E'} onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}><Trash2 size={16} /></button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                ))}
+                {tasks.length === 0 && (
+                    <div style={{ padding: '100px 0', textAlign: 'center', opacity: 0.3 }}>
+                        <AlertCircle size={48} style={{ marginBottom: '20px' }} />
+                        <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>NO TASKS RECORDED</h3>
+                        <p style={{ fontSize: '0.85rem' }}>The roadmap is currently clear for this selection.</p>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     const filteredTeams = teams.filter(t => t.batch === selectedBatch);
 
     return (
-        <div style={{ padding: 'var(--space-2xl)', maxWidth: '1700px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
-            {/* Minimal Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'var(--space-2xl)' }}>
+        <div style={{ padding: 'var(--space-xl)', maxWidth: '1700px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+            {/* Elegant Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2xl)', flexWrap: 'wrap', gap: '20px' }}>
                 <div>
-                    <h1 className="gradient-text" style={{ fontSize: '4.5rem', fontWeight: 950, letterSpacing: '-3px', lineHeight: 0.9, marginBottom: '20px' }}>Global Roadmap</h1>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontSize: '0.85rem', fontWeight: 900, letterSpacing: '2px', textTransform: 'uppercase' }}>
+                    <h1 className="gradient-text" style={{ fontSize: '3rem', fontWeight: 900, letterSpacing: '-1.5px', marginBottom: '10px' }}>Global Roadmap</h1>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontSize: '0.8rem', fontWeight: 900, letterSpacing: '1px', textTransform: 'uppercase' }}>
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'currentColor', boxShadow: '0 0 10px currentColor' }}></div>
                             Live Monitor
                         </div>
-                        <span style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)' }}></span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 600 }}>
-                            Track real-time progress across all teams
+                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.1)' }}></span>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                            Real-time tracking
                         </div>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '15px' }}>
-                    <div className="glass-card" style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '15px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        <Calendar size={20} color="var(--accent-primary)" />
-                        <select
-                            className="form-input"
-                            style={{ width: '160px', border: 'none', background: 'transparent', padding: 0, height: 'auto', fontWeight: 900, fontSize: '1rem' }}
-                            value={selectedBatch}
-                            onChange={(e) => setSelectedBatch(e.target.value)}
+                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Premium Batch Selection */}
+                    <div className="glass-card" style={{ display: 'flex', padding: '4px', gap: '6px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <button
+                            onClick={() => setSelectedBatch('2027')}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '10px',
+                                background: selectedBatch === '2027' ? 'var(--gradient-primary)' : 'transparent',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'all 0.3s'
+                            }}
                         >
-                            <option value="2027">Batch 2027</option>
-                            <option value="2028">Batch 2028</option>
-
-                        </select>
+                            🎓 3rd Year — 2027
+                        </button>
+                        <button
+                            onClick={() => setSelectedBatch('2028')}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '10px',
+                                background: selectedBatch === '2028' ? 'var(--gradient-primary)' : 'transparent',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'all 0.3s'
+                            }}
+                        >
+                            🎓 2nd Year — 2028
+                        </button>
                     </div>
 
-                    <div className="glass-card" style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '15px', borderRadius: '18px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        <Filter size={20} color="rgba(255,255,255,0.3)" />
-                        <select
-                            className="form-input"
-                            style={{ width: '220px', border: 'none', background: 'transparent', padding: 0, height: 'auto', fontWeight: 700, fontSize: '1rem' }}
-                            value={selectedTeam}
-                            onChange={e => setSelectedTeam(e.target.value)}
-                        >
-                            <option value="all">Analyze All Teams</option>
-                            {filteredTeams.map(t => (
-                                <option key={t.id} value={t.id}>Team #{t.team_number} | {t.name}</option>
-                            ))}
-                        </select>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        {/* View Toggle */}
+                        <div className="glass-card" style={{ display: 'flex', padding: '4px', gap: '4px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <button onClick={() => setViewMode('board')} style={{ width: '40px', height: '40px', borderRadius: '8px', background: viewMode === 'board' ? 'rgba(255,255,255,0.1)' : 'transparent', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                <Trello size={18} />
+                            </button>
+                            <button onClick={() => setViewMode('list')} style={{ width: '40px', height: '40px', borderRadius: '8px', background: viewMode === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                <ListFilter size={18} />
+                            </button>
+                        </div>
+
+                        {/* Team Filter */}
+                        <div className="glass-card" style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <Filter size={16} color="rgba(255,255,255,0.3)" />
+                            <select
+                                className="form-input"
+                                style={{ width: '160px', border: 'none', background: 'transparent', padding: 0, height: 'auto', fontWeight: 700, fontSize: '0.85rem' }}
+                                value={selectedTeam}
+                                onChange={e => setSelectedTeam(e.target.value)}
+                            >
+                                <option value="all">All Teams</option>
+                                {filteredTeams.map(t => (
+                                    <option key={t.id} value={t.id}>T#{t.team_number} | {t.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -218,12 +376,11 @@ export default function AdminTasks() {
             {loading ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '150px 0', gap: '30px' }}>
                     <div style={{ position: 'relative' }}>
-                        <Loader2 className="animate-spin" size={80} color="var(--accent-primary)" strokeWidth={1.5} />
-                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '30px', height: '30px', background: 'var(--accent-primary)', borderRadius: '50%', opacity: 0.3, filter: 'blur(10px)' }}></div>
+                        <Loader2 className="animate-spin" size={60} color="var(--accent-primary)" strokeWidth={1.5} />
                     </div>
                     <span style={{ fontWeight: 800, color: 'white', letterSpacing: '5px', textTransform: 'uppercase', opacity: 0.7 }}>Synchronizing</span>
                 </div>
-            ) : (
+            ) : viewMode === 'board' ? (
                 <div style={{
                     display: 'flex',
                     gap: '24px',
@@ -253,6 +410,8 @@ export default function AdminTasks() {
                         accent="#00C49F"
                     />
                 </div>
+            ) : (
+                <TaskListView />
             )}
         </div>
     );

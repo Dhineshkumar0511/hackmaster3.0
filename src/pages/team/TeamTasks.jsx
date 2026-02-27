@@ -189,103 +189,211 @@ export default function TeamTasks() {
         </div>
     );
 
-    return (
-        <div style={{ padding: 'var(--space-xl)', maxWidth: '1400px', margin: '0 auto' }}>
-            {/* Elegant Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2xl)' }}>
-                <div>
-                    <h1 className="gradient-text" style={{ fontSize: '3rem', fontWeight: 900, marginBottom: '8px' }}>Team Roadmap</h1>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                            <Trello size={18} color="var(--accent-primary)" />
-                            <span>Team #{user?.teamNumber} Dashboard</span>
+    const getStatusStyle = (status) => {
+        switch (status) {
+            case 'done': return { bg: 'rgba(0, 245, 160, 0.1)', color: 'var(--accent-green)', text: 'DONE' };
+            case 'progress': return { bg: 'rgba(255, 190, 11, 0.1)', color: 'var(--accent-orange)', text: 'IN PROGRESS' };
+            default: return { bg: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)', text: 'TO DO' };
+        }
+    };
+
+    const TaskListView = () => {
+        return (
+            <div className="glass-card" style={{ padding: '0', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)', animation: 'scaleUp 0.4s ease-out' }}>
+                <div style={{ width: '100%', overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '1px', borderBottom: '1px solid rgba(255,255,255,0.03)', background: 'rgba(255,255,255,0.01)' }}>
+                            <tr>
+                                <th style={{ padding: '20px 25px', width: '40px' }}><input type="checkbox" disabled /></th>
+                                <th style={{ padding: '20px 15px' }}>Task Description</th>
+                                <th style={{ padding: '20px 15px' }}>Member</th>
+                                <th style={{ padding: '20px 15px', width: '100px' }}>Priority</th>
+                                <th style={{ padding: '20px 15px', width: '160px' }}>Status</th>
+                                <th style={{ padding: '20px 25px', width: '60px' }}></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tasks.map(task => {
+                                const status = getStatusStyle(task.status);
+                                return (
+                                    <tr key={task.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s' }}>
+                                        <td style={{ padding: '18px 25px' }}><input type="checkbox" /></td>
+                                        <td style={{ padding: '18px 15px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                                <div style={{ minWidth: '28px', height: '28px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <Layout size={14} color="var(--accent-primary)" />
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', fontWeight: 800, marginBottom: '2px' }}>HM-{task.id}</div>
+                                                    <div style={{ fontSize: '1rem', fontWeight: 600, color: task.status === 'done' ? 'var(--text-muted)' : 'rgba(255,255,255,0.9)' }}>{task.title}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '18px 15px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, color: 'white' }}>
+                                                    {task.assigned_to?.[0] || '?'}
+                                                </div>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{task.assigned_to || 'Unassigned'}</span>
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '18px 15px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: getPriorityColor(task.priority) }}>
+                                                <div style={{ width: '12px', height: '3px', borderRadius: '2px', background: getPriorityColor(task.priority) }}></div>
+                                                {task.priority.toUpperCase()}
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '18px 15px' }}>
+                                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: status.bg, color: status.color, borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, border: `1px solid ${status.color}22`, cursor: 'pointer' }}>
+                                                {status.text}
+                                                <ChevronDown size={14} style={{ opacity: 0.5 }} />
+                                                <select
+                                                    value={task.status}
+                                                    onChange={(e) => updateStatus(task, e.target.value)}
+                                                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+                                                >
+                                                    <option value="todo">TO DO</option>
+                                                    <option value="progress">IN PROGRESS</option>
+                                                    <option value="done">DONE</option>
+                                                </select>
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '18px 25px' }}>
+                                            <button onClick={() => deleteTask(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }} onMouseOver={e => e.currentTarget.style.color = '#FF006E'} onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}><Trash2 size={16} /></button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                    {tasks.length === 0 && (
+                        <div style={{ padding: '100px 0', textAlign: 'center', opacity: 0.3 }}>
+                            <AlertCircle size={48} style={{ marginBottom: '20px' }} />
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>NO TASKS RECORDED</h3>
+                            <p style={{ fontSize: '0.85rem' }}>Your team roadmap is currently clear.</p>
                         </div>
-                        <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>{tasks.length} ACTIVE TASKS</span>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div style={{ padding: 'var(--space-xl)', maxWidth: '1400px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+            {/* Elegant Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2xl)', flexWrap: 'wrap', gap: '20px' }}>
+                <div>
+                    <h1 className="gradient-text" style={{ fontSize: '3.5rem', fontWeight: 900, letterSpacing: '-2px', marginBottom: '8px' }}>Project Roadmap</h1>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontSize: '0.85rem', fontWeight: 900, letterSpacing: '1px', textTransform: 'uppercase' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'currentColor', boxShadow: '0 0 10px currentColor' }}></div>
+                            Team #{user?.teamNumber} Dashboard
+                        </div>
+                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.1)' }}></span>
+                        <div className="badge badge-info" style={{ fontSize: '0.7rem', padding: '4px 12px' }}>{tasks.length} Active Items</div>
                     </div>
                 </div>
 
-                <div className="glass-card" style={{ display: 'flex', padding: '4px', gap: '4px', borderRadius: '12px' }}>
-                    <button onClick={() => setViewMode('kanban')} className={`btn ${viewMode === 'kanban' ? 'btn-primary' : ''}`} style={{ padding: '10px 15px', minWidth: 'auto', background: viewMode === 'kanban' ? '' : 'transparent' }}>
-                        <Layout size={18} /> <span style={{ marginLeft: '8px', fontSize: '0.8rem' }}>Board</span>
+                <div className="glass-card" style={{ display: 'flex', padding: '4px', gap: '6px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <button
+                        onClick={() => setViewMode('kanban')}
+                        style={{
+                            padding: '10px 20px',
+                            borderRadius: '12px',
+                            background: viewMode === 'kanban' ? 'var(--gradient-primary)' : 'transparent',
+                            border: 'none',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            transition: 'all 0.3s'
+                        }}
+                    >
+                        <Trello size={18} /> Board
                     </button>
-                    <button onClick={() => setViewMode('list')} className={`btn ${viewMode === 'list' ? 'btn-primary' : ''}`} style={{ padding: '10px 15px', minWidth: 'auto', background: viewMode === 'list' ? '' : 'transparent' }}>
-                        <ListFilter size={18} /> <span style={{ marginLeft: '8px', fontSize: '0.8rem' }}>Timeline</span>
+                    <button
+                        onClick={() => setViewMode('list')}
+                        style={{
+                            padding: '10px 20px',
+                            borderRadius: '12px',
+                            background: viewMode === 'list' ? 'var(--gradient-primary)' : 'transparent',
+                            border: 'none',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            transition: 'all 0.3s'
+                        }}
+                    >
+                        <ListFilter size={18} /> Timeline
                     </button>
                 </div>
             </div>
 
             {/* Quick Task Entry */}
-            <div className="glass-card" style={{ padding: 'var(--space-lg)', marginBottom: 'var(--space-2xl)', background: 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <form onSubmit={addTask} style={{ display: 'grid', gridTemplateColumns: '1fr 220px 180px 140px', gap: '15px', alignItems: 'center' }}>
-                    <div style={{ position: 'relative' }}>
+            <div className="glass-card" style={{ padding: '25px', marginBottom: 'var(--space-2xl)', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
+                <form onSubmit={addTask} style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative', flex: 1, minWidth: '300px' }}>
                         <input
                             className="form-input"
-                            style={{ paddingLeft: '45px' }}
-                            placeholder="What needs to be done? (e.g. Optimize SQL queries)"
+                            style={{ height: '56px', paddingLeft: '50px', fontSize: '1rem' }}
+                            placeholder="Add a new milestone or task..."
                             value={newTask.title}
                             onChange={e => setNewTask({ ...newTask, title: e.target.value })}
                             required
                         />
-                        <Layout style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={18} />
+                        <Layout style={{ position: 'absolute', left: '18px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={20} />
                     </div>
 
-                    <div style={{ position: 'relative' }}>
-                        <User style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={16} />
+                    <div style={{ position: 'relative', width: '220px' }}>
+                        <User style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={18} />
                         <select
                             className="form-input"
-                            style={{ paddingLeft: '35px' }}
+                            style={{ height: '56px', paddingLeft: '45px', fontWeight: 600 }}
                             value={newTask.assignedTo}
                             onChange={e => setNewTask({ ...newTask, assignedTo: e.target.value })}
                         >
-                            <option value="">Select Assignee</option>
+                            <option value="">Assign Member</option>
                             {teamMembers.map((m, i) => <option key={i} value={m.name}>{m.name}</option>)}
                         </select>
                     </div>
 
                     <select
                         className="form-input"
+                        style={{ height: '56px', width: '180px', fontWeight: 600 }}
                         value={newTask.priority}
                         onChange={e => setNewTask({ ...newTask, priority: e.target.value })}
                     >
                         <option value="low">Low Priority</option>
                         <option value="medium">Medium Priority</option>
-                        <option value="high">Critical Priority</option>
+                        <option value="high">Critical</option>
                     </select>
 
-                    <button type="submit" className="btn btn-primary" disabled={adding} style={{ height: '48px', boxShadow: '0 4px 15px rgba(108, 99, 255, 0.4)' }}>
-                        {adding ? <Loader2 className="animate-spin" /> : <><Plus size={20} /> Add</>}
+                    <button type="submit" className="btn btn-primary" disabled={adding} style={{ height: '56px', padding: '0 30px', fontWeight: 900 }}>
+                        {adding ? <Loader2 className="animate-spin" /> : <><Plus size={20} /> Deploy Task</>}
                     </button>
                 </form>
             </div>
 
             {loading ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '100px' }}><Loader2 className="animate-spin" size={60} color="var(--accent-primary)" /></div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 0', gap: '20px' }}>
+                    <Loader2 className="animate-spin" size={60} color="var(--accent-primary)" />
+                    <span style={{ fontWeight: 800, opacity: 0.5, letterSpacing: '4px' }}>LOADING DATA</span>
+                </div>
             ) : viewMode === 'kanban' ? (
-                <div style={{ display: 'flex', gap: 'var(--space-xl)', overflowX: 'auto', paddingBottom: '20px' }}>
-                    <KanbanColumn title="Ready" status="todo" items={tasks.filter(t => t.status === 'todo')} accent="rgba(255,255,255,0.2)" />
+                <div style={{ display: 'flex', gap: '24px', overflowX: 'auto', paddingBottom: '30px' }}>
+                    <KanbanColumn title="Backlog" status="todo" items={tasks.filter(t => t.status === 'todo')} accent="rgba(255,255,255,0.2)" />
                     <KanbanColumn title="In Progress" status="progress" items={tasks.filter(t => t.status === 'progress')} accent="#FFBE0B" />
-                    <KanbanColumn title="Done & Verified" status="done" items={tasks.filter(t => t.status === 'done')} accent="#00C49F" />
+                    <KanbanColumn title="Done" status="done" items={tasks.filter(t => t.status === 'done')} accent="#00C49F" />
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-                    {tasks.map(task => (
-                        <div key={task.id} className="glass-card" style={{ padding: '15px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderLeft: `5px solid ${getPriorityColor(task.priority)}` }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flex: 1 }}>
-                                {getStatusIcon(task.status)}
-                                <div style={{ fontSize: '1.1rem', fontWeight: 600, color: task.status === 'done' ? 'var(--text-muted)' : 'white' }}>{task.title}</div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '40px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 900 }}>{task.assigned_to?.[0] || '?'}</div>
-                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{task.assigned_to || 'Unassigned'}</span>
-                                </div>
-                                <span className="badge" style={{ background: `${getPriorityColor(task.priority)}22`, color: getPriorityColor(task.priority), border: `1px solid ${getPriorityColor(task.priority)}44`, fontSize: '0.65rem' }}>{task.priority.toUpperCase()}</span>
-                                <button onClick={() => deleteTask(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }}><Trash2 size={16} /></button>
-                            </div>
-                        </div>
-                    ))}
-                    {tasks.length === 0 && <div style={{ textAlign: 'center', padding: '100px', opacity: 0.3 }}>No roadmap items found.</div>}
-                </div>
+                <TaskListView />
             )}
         </div>
     );
