@@ -2,8 +2,7 @@ import React from 'react';
 import { useAppContext } from '../../App';
 
 export default function TeamUseCases() {
-    const { user, teams, getUseCasesByBatch, unlockedRequirements } = useAppContext();
-    const useCases = getUseCasesByBatch(user?.batch || '2027');
+    const { user, teams, useCases, unlockedRequirements } = useAppContext();
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
     const myUseCaseId = myTeam?.use_case_id;
 
@@ -15,14 +14,17 @@ export default function TeamUseCases() {
             </div>
 
             {myUseCaseId && (() => {
-                const uc = useCases.find(u => u.id === myUseCaseId);
+                const ucIndex = useCases.findIndex(u => u.id === myUseCaseId);
+                const uc = ucIndex !== -1 ? useCases[ucIndex] : null;
+                if (!uc) return null;
+
                 const visibleReqs = uc.requirements.slice(0, unlockedRequirements);
                 const lockedReqsCount = uc.requirements.length - unlockedRequirements;
                 return (
                     <div className="glass-card" style={{ padding: 'var(--space-2xl)', marginBottom: 'var(--space-2xl)', border: '1px solid rgba(0, 212, 255, 0.3)', background: 'rgba(0, 212, 255, 0.05)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)' }}>
                             <span className="badge badge-success">✅ YOUR ASSIGNED USE CASE</span>
-                            <span className="badge badge-info">UC #{uc.id}</span>
+                            <span className="badge badge-info">UC #{ucIndex + 1}</span>
                         </div>
                         <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', marginBottom: 'var(--space-md)' }}>{uc.title}</h3>
                         <div style={{ display: 'flex', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)', flexWrap: 'wrap' }}>
@@ -80,13 +82,13 @@ export default function TeamUseCases() {
             })()}
 
             <div className="content-grid">
-                {useCases.map(uc => {
+                {useCases.map((uc, index) => {
                     const isAllocated = uc.id === myUseCaseId;
                     const isLocked = myUseCaseId && !isAllocated;
                     const visibleReqs = uc.requirements.slice(0, unlockedRequirements);
                     return (
                         <div key={uc.id} className={`glass-card usecase-card ${isLocked ? 'locked' : ''}`}>
-                            <div className="usecase-number">{String(uc.id).padStart(2, '0')}</div>
+                            <div className="usecase-number">#{index + 1}</div>
                             <div className="usecase-title">{uc.title}</div>
                             <div className="usecase-difficulty"><span className="badge badge-warning">{uc.difficulty}</span></div>
                             <div className="usecase-tech">🔧 {uc.tech}</div>

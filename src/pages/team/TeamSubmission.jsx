@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function TeamSubmission() {
-    const { user, teams, submissions, addSubmission, evaluationResults, getUseCasesByBatch, unlockedRequirements } = useAppContext();
-    const myBatchUseCases = getUseCasesByBatch(user?.batch || '2027');
+    const { user, teams, submissions, addSubmission, evaluationResults, useCases, unlockedRequirements } = useAppContext();
+    const myBatchUseCases = useCases.filter(uc => uc.batch === (user?.batch || '2027'));
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
     const myUseCase = myTeam?.use_case_id ? myBatchUseCases.find(u => u.id === myTeam.use_case_id) : null;
     const mySubmissions = submissions.filter(s => s.team_number === user?.teamNumber);
@@ -266,6 +266,23 @@ export default function TeamSubmission() {
                                                         </div>
                                                     </div>
                                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 8px 0' }}>{r.explanation}</p>
+
+                                                    {r.filesFound && r.filesFound.length > 0 && (
+                                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                                            {r.filesFound.map((file, k) => (
+                                                                <span key={k} style={{
+                                                                    fontSize: '0.6rem',
+                                                                    background: 'rgba(0, 212, 255, 0.1)',
+                                                                    color: 'var(--accent-cyan)',
+                                                                    padding: '2px 6px',
+                                                                    borderRadius: '4px',
+                                                                    border: '1px solid rgba(0, 212, 255, 0.2)',
+                                                                    fontFamily: 'var(--font-mono)'
+                                                                }}>📄 {file.split('/').pop()}</span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
                                                     {r.mistakes && r.mistakes.length > 0 && (
                                                         <div style={{ background: 'rgba(255, 61, 113, 0.1)', padding: '8px', borderRadius: '4px' }}>
                                                             <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--accent-red)', marginBottom: '4px' }}>MISTAKES / IMPROVEMENTS:</div>

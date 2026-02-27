@@ -4,6 +4,7 @@ import { useAppContext } from '../App';
 
 const navItems = [
     { path: '/admin', icon: '🏠', label: 'Dashboard', end: true },
+    { path: '/admin/usecases', icon: '📝', label: 'Manage Use Cases' },
     { path: '/admin/assign', icon: '🎯', label: 'Assign Use Cases' },
     { path: '/admin/teams', icon: '👥', label: 'Team Details' },
     { path: '/admin/submissions', icon: '📤', label: 'Submissions' },

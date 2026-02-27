@@ -33,6 +33,8 @@ export default function AdminSubmissions() {
                 body: JSON.stringify({
                     submissionId: submission.id,
                     useCaseTitle: useCase?.title || 'Unknown',
+                    useCaseObjective: useCase?.objective || '',
+                    domainChallenge: useCase?.domainChallenge || '',
                     requirementText: `R${submission.requirement_number}: ${requirement}`,
                     githubUrl: submission.github_url,
                     phase: submission.phase,
@@ -144,6 +146,23 @@ export default function AdminSubmissions() {
                                                 </div>
                                             </div>
                                             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 8px 0' }}>{r.explanation}</p>
+
+                                            {r.filesFound && r.filesFound.length > 0 && (
+                                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                                    {r.filesFound.map((file, k) => (
+                                                        <span key={k} style={{
+                                                            fontSize: '0.6rem',
+                                                            background: 'rgba(0, 212, 255, 0.1)',
+                                                            color: 'var(--accent-cyan)',
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            border: '1px solid rgba(0, 212, 255, 0.2)',
+                                                            fontFamily: 'var(--font-mono)'
+                                                        }}>📄 {file.split('/').pop()}</span>
+                                                    ))}
+                                                </div>
+                                            )}
+
                                             {r.mistakes && r.mistakes.length > 0 && (
                                                 <div style={{ background: 'rgba(255, 61, 113, 0.1)', padding: '8px', borderRadius: '4px' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--accent-red)', marginBottom: '4px' }}>MISTAKES / IMPROVEMENTS:</div>

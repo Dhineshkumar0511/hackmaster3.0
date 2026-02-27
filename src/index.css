@@ -215,6 +215,14 @@ select {
   transition: all var(--transition-normal);
   position: relative;
   overflow: hidden;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+  pointer-events: none;
 }
 
 .btn::before {

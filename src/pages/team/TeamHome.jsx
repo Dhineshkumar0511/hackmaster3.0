@@ -3,8 +3,8 @@ import { useAppContext } from '../../App';
 import { HACKATHON_INFO, EVALUATION_PHASES, TIMELINE } from '../../data/constants';
 
 export default function TeamHome() {
-    const { user, teams, submissions, getUseCasesByBatch } = useAppContext();
-    const useCases = getUseCasesByBatch(user?.batch || '2027');
+    const { user, teams, submissions, useCases: allUseCases } = useAppContext();
+    const useCases = allUseCases.filter(uc => uc.batch === (user?.batch || '2027'));
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
     const myUseCase = myTeam?.use_case_id ? useCases.find(u => u.id === myTeam.use_case_id) : null;
     const mySubmissions = submissions.filter(s => s.team_number === user?.teamNumber);
@@ -61,6 +61,13 @@ export default function TeamHome() {
                     <div className="stat-icon" style={{ background: 'rgba(255, 140, 0, 0.15)' }}>🎯</div>
                     <div className="stat-value" style={{ color: 'var(--accent-orange)' }}>{myUseCase?.requirements?.length || 0}</div>
                     <div className="stat-label">Requirements to Fulfill</div>
+                </div>
+                <div className="glass-card stat-card">
+                    <div className="stat-icon" style={{ background: 'rgba(0, 245, 160, 0.15)' }}>🎓</div>
+                    <div className="stat-value" style={{ fontSize: '1.2rem', color: myTeam?.mentor?.name ? 'var(--accent-green)' : 'var(--text-muted)' }}>
+                        {myTeam?.mentor?.name || 'Not Set'}
+                    </div>
+                    <div className="stat-label">Team Mentor — {myTeam?.mentor?.department || 'Awaiting Details'}</div>
                 </div>
             </div>
 

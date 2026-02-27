@@ -2,18 +2,41 @@ import React, { useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminUseCaseAssign() {
-    const { teams, assignUseCase, unlockedRequirements, setUnlockedRequirements, batches, selectedBatch, setSelectedBatch, getUseCasesByBatch } = useAppContext();
+    const { teams, useCases, assignUseCase, unlockedRequirements, setUnlockedRequirements, batches, selectedBatch, setSelectedBatch } = useAppContext();
     const [selectedTeam, setSelectedTeam] = useState('');
     const [selectedUseCase, setSelectedUseCase] = useState('');
     const [expandedUC, setExpandedUC] = useState(null);
-
-    const useCases = getUseCasesByBatch(selectedBatch);
 
     const handleAssign = () => {
         if (!selectedTeam || !selectedUseCase) return;
         assignUseCase(parseInt(selectedTeam), parseInt(selectedUseCase));
         setSelectedTeam('');
         setSelectedUseCase('');
+    };
+
+    const handleBulkAssign = async () => {
+        if (useCases.length === 0) return;
+        if (!window.confirm(`Are you sure you want to bulk assign use cases to all ${teams.length} teams?`)) return;
+
+        // Shuffle use cases for randomness
+        const shuffledUCs = [...useCases].sort(() => Math.random() - 0.5);
+
+        // Loop through teams and assign sequentially from the shuffled list
+        for (let i = 0; i < teams.length; i++) {
+            const team = teams[i];
+            const uc = shuffledUCs[i % shuffledUCs.length];
+            await assignUseCase(team.id, uc.id);
+        }
+    };
+
+    const handleBulkUnassign = async () => {
+        if (!window.confirm(`Are you sure you want to unassign ALL use cases from ALL ${teams.length} teams? This cannot be undone.`)) return;
+
+        for (const team of teams) {
+            if (team.use_case_id) {
+                await assignUseCase(team.id, null);
+            }
+        }
     };
 
     const handleReleaseNext = () => {
@@ -145,7 +168,13 @@ export default function AdminUseCaseAssign() {
 
             {/* Assignment Section */}
             <div className="glass-card section-card" style={{ marginBottom: 'var(--space-2xl)' }}>
-                <h3>🆕 Assign Use Case to Team</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+                    <h3 style={{ margin: 0 }}>🆕 Assign Use Case to Team</h3>
+                    <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
+                        <button className="btn btn-secondary" onClick={handleBulkAssign} style={{ fontSize: '0.8rem' }}>🎲 Bulk Assign (Random)</button>
+                        <button className="btn btn-outline" onClick={handleBulkUnassign} style={{ fontSize: '0.8rem', border: '1px solid var(--accent-orange)', color: 'var(--accent-orange)' }}>🧹 Bulk Unassign All</button>
+                    </div>
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 'var(--space-lg)', alignItems: 'end' }}>
                     <div className="form-group">
                         <label className="form-label">Select Team</label>
@@ -160,8 +189,8 @@ export default function AdminUseCaseAssign() {
                         <label className="form-label">Select Use Case</label>
                         <select className="form-input" value={selectedUseCase} onChange={e => setSelectedUseCase(e.target.value)}>
                             <option value="">Choose a use case...</option>
-                            {useCases.map(uc => (
-                                <option key={uc.id} value={uc.id}>#{uc.id} — {uc.title}</option>
+                            {useCases.map((uc, idx) => (
+                                <option key={uc.id} value={uc.id}>#{idx + 1} — {uc.title} [{uc.difficulty}]</option>
                             ))}
                         </select>
                     </div>
@@ -172,17 +201,22 @@ export default function AdminUseCaseAssign() {
             {/* Assignment Overview */}
             <div className="glass-card section-card" style={{ marginBottom: 'var(--space-2xl)' }}>
                 <h3>📋 Assignment Overview</h3>
-                <div className="table-container" style={{ border: 'none' }}>
+                <div className="table-container" style={{ border: 'none', maxHeight: '400px', overflowY: 'auto' }}>
                     <table className="data-table">
-                        <thead><tr><th>Team #</th><th>Team Name</th><th>Assigned Use Case</th><th>Visible Reqs</th><th>Status</th><th>Action</th></tr></thead>
+                        <thead>
+                            <tr style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--card-bg)' }}>
+                                <th>Team #</th><th>Team Name</th><th>Assigned Use Case</th><th>Visible Reqs</th><th>Status</th><th>Action</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             {teams.map(team => {
-                                const uc = team.use_case_id ? useCases.find(u => u.id === team.use_case_id) : null;
+                                const ucIndex = team.use_case_id ? useCases.findIndex(u => u.id === team.use_case_id) : -1;
+                                const uc = ucIndex !== -1 ? useCases[ucIndex] : null;
                                 return (
                                     <tr key={team.id}>
                                         <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{team.team_number}</td>
                                         <td style={{ fontWeight: 600 }}>{team.name}</td>
-                                        <td style={{ fontSize: '0.85rem', color: uc ? 'var(--text-primary)' : 'var(--text-muted)' }}>{uc ? `UC #${uc.id}: ${uc.title}` : 'Not Assigned'}</td>
+                                        <td style={{ fontSize: '0.85rem', color: uc ? 'var(--text-primary)' : 'var(--text-muted)' }}>{uc ? `UC #${ucIndex + 1}: ${uc.title}` : 'Not Assigned'}</td>
                                         <td>{uc ? <span className="badge badge-info">R1–R{unlockedRequirements} ({unlockedRequirements}/{uc.requirements.length})</span> : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>}</td>
                                         <td>{uc ? <span className="badge badge-success">✅ Assigned</span> : <span className="badge badge-warning">⏳ Pending</span>}</td>
                                         <td>{uc && <button className="btn btn-secondary btn-sm" onClick={() => assignUseCase(team.id, null)}>❌ Unassign</button>}</td>
@@ -196,16 +230,16 @@ export default function AdminUseCaseAssign() {
 
             {/* All Use Cases */}
             <div className="glass-card section-card">
-                <h3>💡 All 14 Use Cases</h3>
-                <div className="content-grid">
-                    {useCases.map(uc => {
+                <h3>💡 All {useCases.length} Use Cases</h3>
+                <div className="content-grid" style={{ maxHeight: '600px', overflowY: 'auto', paddingRight: '10px' }}>
+                    {useCases.map((uc, idx) => {
                         const assignedTeams = teams.filter(t => t.use_case_id === uc.id);
                         const isExpanded = expandedUC === uc.id;
                         const visibleReqs = uc.requirements.slice(0, unlockedRequirements);
                         const lockedReqs = uc.requirements.slice(unlockedRequirements);
                         return (
                             <div key={uc.id} className="glass-card usecase-card" style={{ cursor: 'pointer' }} onClick={() => setExpandedUC(isExpanded ? null : uc.id)}>
-                                <div className="usecase-number">{String(uc.id).padStart(2, '0')}</div>
+                                <div className="usecase-number">#{idx + 1}</div>
                                 <div className="usecase-title">{uc.title}</div>
                                 <div className="usecase-difficulty"><span className="badge badge-warning">{uc.difficulty}</span></div>
                                 <div className="usecase-tech">🔧 {uc.tech}</div>

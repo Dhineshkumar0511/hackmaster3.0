@@ -24,24 +24,26 @@ router.get('/', authMiddleware, async (req, res) => {
         const [rows] = await pool.execute(query, params);
         res.json(rows);
     } catch (err) {
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error in GET /api/submissions:', err);
+        res.status(500).json({ error: 'Server error: ' + err.message });
     }
 });
 
 // POST /api/submissions
 router.post('/', authMiddleware, async (req, res) => {
-    const { phase, requirementNumber, githubUrl } = req.body;
+    const { phase, requirementNumber, githubUrl, description, useCaseId } = req.body;
     try {
         const [teamRows] = await pool.execute('SELECT id, name FROM teams WHERE team_number = ? AND batch = ?', [req.user.teamNumber, req.user.batch]);
         if (teamRows.length === 0) return res.status(404).json({ error: 'Team not found' });
 
         await pool.execute(
-            'INSERT INTO submissions (team_id, team_number, team_name, batch, phase, requirement_number, github_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [teamRows[0].id, req.user.teamNumber, req.user.teamName, req.user.batch, phase, requirementNumber, githubUrl]
+            'INSERT INTO submissions (team_id, team_number, team_name, batch, phase, requirement_number, github_url, description, use_case_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [teamRows[0].id, req.user.teamNumber, req.user.teamName, req.user.batch, phase, requirementNumber, githubUrl, description, useCaseId]
         );
         res.json({ message: 'Submitted' });
     } catch (err) {
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error in POST /api/submissions:', err);
+        res.status(500).json({ error: 'Server error: ' + err.message });
     }
 });
 

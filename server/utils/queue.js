@@ -8,6 +8,11 @@ class JobQueue {
         this.jobs = new Map();
         this.queue = [];
         this.isProcessing = false;
+        this.worker = null;
+    }
+
+    setWorker(workerFn) {
+        this.worker = workerFn;
     }
 
     add(jobData) {
@@ -22,7 +27,10 @@ class JobQueue {
         };
         this.jobs.set(jobId, job);
         this.queue.push(jobId);
+
+        // Trigger processing (it will check if already processing)
         this.process();
+
         return jobId;
     }
 
@@ -31,23 +39,34 @@ class JobQueue {
     }
 
     async process() {
-        if (this.isProcessing || this.queue.length === 0) return;
-        this.isProcessing = true;
+        if (this.isProcessing || this.queue.length === 0 || !this.worker) return;
 
+        this.isProcessing = true;
         const jobId = this.queue.shift();
         const job = this.jobs.get(jobId);
+
+        if (!job) {
+            this.isProcessing = false;
+            this.process();
+            return;
+        }
+
         job.status = 'processing';
+        console.log(`[JobQueue] Starting job ${jobId}...`);
 
         try {
-            // This is where the evaluation logic will go
-            // For now, it's a placeholder that we'll call from server.js
-            console.log(`Processing evaluation job: ${jobId}`);
+            const result = await this.worker(job.data, job);
+            job.status = 'completed';
+            job.result = result;
+            console.log(`[JobQueue] Job ${jobId} completed.`);
         } catch (err) {
+            console.error(`[JobQueue] Job ${jobId} failed:`, err);
             job.status = 'failed';
             job.error = err.message;
         } finally {
             this.isProcessing = false;
-            this.process();
+            // Process next job in queue
+            setTimeout(() => this.process(), 500); // 500ms breather between jobs
         }
     }
 }

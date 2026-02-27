@@ -11,12 +11,12 @@ const PHASE_CATEGORIES = [
 ];
 
 export default function AdminMentorMarks() {
-    const { teams, mentorMarks, updateMentorMarks, deleteAllMentorMarks, evaluationResults, submissions, allUseCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
+    const { teams, mentorMarks, updateMentorMarks, deleteAllMentorMarks, evaluationResults, submissions, useCases, batches, selectedBatch, setSelectedBatch } = useAppContext();
     const [selectedTeam, setSelectedTeam] = useState('');
     const [marks, setMarks] = useState({});
     const [activeTab, setActiveTab] = useState('phase'); // 'phase' or 'requirement'
 
-    const allUCs = [...(allUseCases['2027'] || []), ...(allUseCases['2028'] || [])];
+    const allUCs = useCases || [];
 
     const selectedTeamData = teams.find(t => String(t.id) === selectedTeam);
     const assignedUseCase = selectedTeamData?.use_case_id

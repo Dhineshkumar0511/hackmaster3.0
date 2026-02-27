@@ -111,6 +111,20 @@ export async function initDb() {
   `);
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS use_cases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      title VARCHAR(255) NOT NULL,
+      difficulty VARCHAR(50) NOT NULL,
+      tech VARCHAR(255),
+      objective TEXT,
+      domainChallenge TEXT,
+      requirements TEXT, -- Stored as JSON string
+      batch VARCHAR(10) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS certificates (
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_id INT NOT NULL,

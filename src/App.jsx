@@ -24,11 +24,12 @@ import AdminMentorMarks from './pages/admin/AdminMentorMarks';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminTasks from './pages/admin/AdminTasks';
 import AdminCertificates from './pages/admin/AdminCertificates';
+import AdminUseCases from './pages/admin/AdminUseCases';
 import TeamTasks from './pages/team/TeamTasks';
 import TeamCertificates from './pages/team/TeamCertificates';
 
 // Data
-import { USE_CASES, USE_CASES_2ND_YEAR, HACKATHON_INFO, BATCHES, getUseCasesByBatch } from './data/constants';
+import { HACKATHON_INFO, BATCHES } from './data/constants';
 
 // ==========================================
 // API Helper
@@ -76,6 +77,7 @@ function App() {
     });
 
     const [teams, setTeams] = useState([]);
+    const [useCases, setUseCases] = useState([]); // Dynamic Use Cases
     const [submissions, setSubmissions] = useState([]);
     const [evaluationResults, setEvaluationResults] = useState({});
     const [mentorMarks, setMentorMarks] = useState({});
@@ -142,6 +144,16 @@ function App() {
         }
     }, [selectedBatch, user]);
 
+    const fetchUseCases = useCallback(async () => {
+        try {
+            const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
+            const data = await apiFetch(`/use-cases?batch=${batch}`);
+            setUseCases(data);
+        } catch (err) {
+            console.error('Error fetching use cases:', err);
+        }
+    }, [selectedBatch, user]);
+
     const fetchEvaluations = useCallback(async () => {
         try {
             const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
@@ -203,6 +215,7 @@ function App() {
         setLoading(true);
         await Promise.all([
             fetchTeams(),
+            fetchUseCases(),
             fetchSubmissions(),
             fetchEvaluations(),
             fetchMentorMarks(),
@@ -210,7 +223,7 @@ function App() {
             fetchSettings()
         ]);
         setLoading(false);
-    }, [user, fetchTeams, fetchSubmissions, fetchEvaluations, fetchMentorMarks, fetchCertificates, fetchSettings]);
+    }, [user, fetchTeams, fetchUseCases, fetchSubmissions, fetchEvaluations, fetchMentorMarks, fetchCertificates, fetchSettings]);
 
     useEffect(() => {
         if (user) refreshAll();
@@ -358,9 +371,8 @@ function App() {
             const phaseScore = (marks.phase1 || 0) + (marks.phase2 || 0) + (marks.phase3 || 0)
                 + (marks.innovation || 0) + (marks.presentation || 0) + (marks.teamwork || 0);
 
-            // Requirement marks (up to 10 × 10 = 100)
-            const batchUCs = getUseCasesByBatch(team.batch || '2027');
-            const uc = team.use_case_id ? batchUCs.find(u => u.id === team.use_case_id) : null;
+            // Requirement marks
+            const uc = team.use_case_id ? useCases.find(u => u.id === team.use_case_id) : null;
 
             let reqScore = 0;
             if (uc && uc.requirements) {
@@ -380,12 +392,14 @@ function App() {
             const reqSatisfied = teamEvals.reduce((sum, e) => sum + (e.requirements_met || 0), 0);
             const totalReqs = teamEvals.reduce((sum, e) => sum + (e.total_requirements || 0), 0);
 
+            const ucIdx = uc ? useCases.findIndex(u => u.id === uc.id) : -1;
+
             return {
                 id: team.id,
                 teamNumber: team.team_number,
                 name: team.name,
                 useCaseId: team.use_case_id,
-                useCaseTitle: uc ? `#${uc.id} ${uc.title}` : 'Not Assigned',
+                useCaseTitle: uc ? `#${ucIdx + 1} ${uc.title}` : 'Not Assigned',
                 aiScore,
                 phaseScore, // Raw sum (out of 60)
                 reqScore: normReq, // Normalized (out of 100)
@@ -404,16 +418,13 @@ function App() {
         login,
         logout,
         teams,
+        useCases,
         submissions,
         evaluationResults,
         mentorMarks,
         certificates,
         unlockedRequirements,
         setUnlockedRequirements,
-        useCases: USE_CASES,
-        useCases2ndYear: USE_CASES_2ND_YEAR,
-        allUseCases: { '2027': USE_CASES, '2028': USE_CASES_2ND_YEAR },
-        getUseCasesByBatch,
         batches: BATCHES,
         selectedBatch,
         setSelectedBatch,
@@ -422,11 +433,43 @@ function App() {
         showToast,
         refreshAll,
         fetchTeams,
+        fetchUseCases,
         fetchSubmissions,
         fetchEvaluations,
         fetchCertificates,
         updateTeamDetails,
         assignUseCase,
+        addUseCase: async (data) => {
+            try {
+                await apiFetch('/use-cases', { method: 'POST', body: JSON.stringify(data) });
+                showToast('Use case added!', 'success');
+                fetchUseCases();
+            } catch (err) { showToast(err.message, 'error'); }
+        },
+        bulkAddUseCases: async (useCasesArray) => {
+            try {
+                const data = await apiFetch('/use-cases/bulk', {
+                    method: 'POST',
+                    body: JSON.stringify({ useCases: useCasesArray })
+                });
+                showToast(data.message || 'Bulk import successful!', 'success');
+                fetchUseCases();
+            } catch (err) { showToast(err.message, 'error'); }
+        },
+        deleteUseCase: async (id) => {
+            try {
+                await apiFetch(`/use-cases/${id}`, { method: 'DELETE' });
+                showToast('Use case deleted', 'info');
+                fetchUseCases();
+            } catch (err) { showToast(err.message, 'error'); }
+        },
+        deleteAllUseCases: async (batch) => {
+            try {
+                await apiFetch(`/use-cases/batch/${batch}`, { method: 'DELETE' });
+                showToast(`All use cases for ${batch} deleted`, 'info');
+                fetchUseCases();
+            } catch (err) { showToast(err.message, 'error'); }
+        },
         clearTeamRegistration,
         addSubmission,
         deleteSubmission,
@@ -470,6 +513,7 @@ function App() {
                     {/* Admin Routes */}
                     <Route path="/admin" element={user?.role === 'admin' ? <AdminLayout /> : <Navigate to="/" />}>
                         <Route index element={<AdminHome />} />
+                        <Route path="usecases" element={<AdminUseCases />} />
                         <Route path="assign" element={<AdminUseCaseAssign />} />
                         <Route path="teams" element={<AdminTeamDetails />} />
                         <Route path="submissions" element={<AdminSubmissions />} />

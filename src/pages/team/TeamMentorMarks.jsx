@@ -13,8 +13,8 @@ const PHASE_CATEGORIES = [
 ];
 
 export default function TeamMentorMarks() {
-    const { teams, mentorMarks, evaluationResults, submissions, allUseCases, user } = useAppContext();
-    const allUCs = [...(allUseCases['2027'] || []), ...(allUseCases['2028'] || [])];
+    const { teams, mentorMarks, evaluationResults, submissions, useCases, user } = useAppContext();
+    const allUCs = useCases || [];
 
     const myTeam = teams.find(t => t.id === user?.teamId || t.team_number === user?.teamNumber);
     const teamsToDisplay = user?.role === 'admin' ? teams : teams.filter(t => t.id === user?.teamId || t.team_number === user?.teamNumber);
