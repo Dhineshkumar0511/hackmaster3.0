@@ -10,19 +10,18 @@ const router = express.Router();
 // GET /api/evaluations
 router.get('/', authMiddleware, async (req, res) => {
     try {
-        const batch = req.query.batch;
-        let query = 'SELECT er.* FROM evaluation_results er JOIN submissions s ON er.submission_id = s.id JOIN teams t ON s.team_id = t.id';
-        const params = [];
+        const batch = req.query.batch || req.user.batch || '2027';
 
-        if (req.user.role === 'team') {
-            query += ' WHERE s.team_number = ? AND t.batch = ?';
-            params.push(req.user.teamNumber, req.user.batch);
-        } else if (batch) {
-            query += ' WHERE t.batch = ?';
-            params.push(batch);
-        }
+        // Fetch evaluations linked to submissions
+        const [rows] = await pool.execute(`
+            SELECT er.* 
+            FROM evaluation_results er 
+            LEFT JOIN submissions s ON er.submission_id = s.id 
+            LEFT JOIN teams t ON s.team_id = t.id
+            WHERE t.batch = ?
+            ORDER BY er.submission_id DESC
+        `, [batch]);
 
-        const [rows] = await pool.execute(query, params);
         res.json(rows);
     } catch (err) {
         console.error('Error in GET /api/evaluations:', err);
@@ -32,15 +31,16 @@ router.get('/', authMiddleware, async (req, res) => {
 
 // POST /api/evaluations (manual save)
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
-    const { submissionId, ...result } = req.body;
+    const { submissionId, forgeLogs, ...result } = req.body;
     try {
         await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
         await pool.execute(
-            `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report, file_tree)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report, file_tree, forge_logs)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [submissionId, result.code_quality || 0, result.req_satisfaction || 0, result.innovation || 0, result.total_score || 0,
                 result.requirements_met || 0, result.total_requirements || 0, result.feedback || '',
-                JSON.stringify(result.detailed_report || []), JSON.stringify(result.file_tree || [])]
+                JSON.stringify(result.detailed_report || []), JSON.stringify(result.file_tree || []),
+                JSON.stringify(forgeLogs || [])]
         );
         res.json({ message: 'Saved' });
     } catch (err) {
@@ -75,24 +75,35 @@ const evaluationWorker = async (data, job) => {
     try {
         console.log(`\n🤖 ======= Job Started: ${job.id} =======`);
         console.log(`   Submission ID: ${submissionId}`);
-        console.log(`   GitHub: ${githubUrl}`);
+
+        // Normalize GitHub URL
+        let finalUrl = githubUrl;
+        if (finalUrl && !finalUrl.startsWith('http')) {
+            finalUrl = `https://github.com/${finalUrl.replace(/^\//, '')}`;
+        }
+        console.log(`   GitHub (Final): ${finalUrl}`);
+
+        // ---- STEP 0: Get Team Info for Identity Check ----
+        const [[teamInfo]] = await pool.execute(`
+            SELECT t.members, t.name, t.team_number 
+            FROM teams t 
+            JOIN submissions s ON s.team_id = t.id 
+            WHERE s.id = ?
+        `, [submissionId]);
+
+        const teamMembers = teamInfo?.members ? JSON.parse(teamInfo.members) : [];
 
         // ---- STEP 1: Deep GitHub Scan ----
-        const githubData = await fetchGithubRepoContent(githubUrl);
+        const githubData = await fetchGithubRepoContent(finalUrl);
+        const repoInfo = githubData?.repoInfo || {};
 
         if (!githubData || !githubData.fullContext || githubData.fullContext.trim().length < 50) {
             console.error('❌ GitHub scan returned no usable code');
-
             const evaluation = {
-                codeQuality: 0,
-                reqSatisfaction: 0,
-                innovation: 0,
-                totalScore: 0,
-                requirementsMet: 0,
-                feedback: '❌ EVALUATION FAILED: Could not access or read the GitHub repository. Please check if repository is public and contains code files.',
+                codeQuality: 0, reqSatisfaction: 0, innovation: 0, totalScore: 0, requirementsMet: 0,
+                feedback: '❌ EVALUATION FAILED: Could not access or read the GitHub repository.',
                 detailedReport: [],
             };
-
             await saveEvaluation(submissionId, evaluation, allRequirements || [], githubData?.fileTree || []);
             return evaluation;
         }
@@ -117,7 +128,9 @@ const evaluationWorker = async (data, job) => {
                 reqsList,
                 githubContext: githubData.fullContext,
                 fileSummary,
-                repoStats: githubData.stats
+                repoStats: githubData.stats,
+                teamMembers,
+                repoInfo
             });
         }
 
@@ -147,102 +160,102 @@ const evaluationWorker = async (data, job) => {
 evaluationQueue.setWorker(evaluationWorker);
 
 router.post('/evaluate', authMiddleware, adminOnly, async (req, res) => {
-    const jobId = evaluationQueue.add(req.body);
-    res.json({ message: 'Evaluation added to queue', jobId });
+    try {
+        const jobId = evaluationQueue.add(req.body);
+        res.json({ 
+            message: 'Evaluation added to queue', 
+            jobId: jobId,
+            status: 'pending'
+        });
+    } catch (err) {
+        console.error('Error adding evaluation to queue:', err);
+        res.status(500).json({ 
+            error: 'Failed to queue evaluation: ' + err.message 
+        });
+    }
 });
 
 /**
  * Call Cerebras AI for deep evaluation
  */
-async function callAIEvaluation({ apiKey, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, fileSummary, repoStats }) {
+/**
+ * Call Cerebras AI for deep evaluation
+ */
+async function callAIEvaluation({ apiKey, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, fileSummary, repoStats, teamMembers, repoInfo }) {
 
-    const prompt = `You are an EXPERT HACKATHON TECHNICAL JUDGE performing a rigorous, file-by-file code audit.
+    const teamNames = teamMembers.map(m => m.name).join(', ');
+    const contributors = (repoInfo.contributors || []).join(', ');
 
-## YOUR TASK
-Evaluate this GitHub repository submission for a hackathon. You must act like a HUMAN reviewer who:
-- Opens EACH code file and reads it carefully
-- Checks if the code actually IMPLEMENTS each requirement (not just mentions keywords)
-- Looks for real working logic, not boilerplate or placeholder code
-- Differentiates between genuine implementation and AI-generated filler
-- Is STRICT but FAIR — partial implementations get partial credit
+    const prompt = `You are a SENIOR TECHNICAL ARCHITECT and HACKATHON JUDGE performing a DEEP-LEVEL CODE AUDIT.
 
-## HACKATHON CONTEXT
-**Use Case:** ${useCaseTitle}
-${useCaseObjective ? `**Objective:** ${useCaseObjective}` : ''}
+## PLAGIARISM & IDENTITY CHECK
+You must verify if this work belongs to the team:
+- **Team Name:** ${repoInfo.teamName || 'Unknown'}
+- **Registered Members:** ${teamNames}
+- **GitHub Repo Owner:** ${repoInfo.owner}
+- **GitHub Contributors:** ${contributors}
+- **Repo Created At:** ${repoInfo.createdAt}
+
+**IDENTITY RULES (ANTI-PLAGIARISM):**
+1. If the repo was created MORE than 1 month before the hackathon, flag it as "REUSED OLD PROJECT" unless it's a known framework.
+2. If NONE of the team members match the GitHub contributors login/names, and there is no mention of the team in the README, deduction of 10 points is mandatory.
+3. If you find STOLEN CODE from another public repo without attribution, score is 0.
+
+## YOUR CRITICAL MISSION: TOPIC ALIGNMENT
+Before scoring code quality, you MUST verify if the repository's project matches the assigned Use Case.
+- **Assigned Use Case:** ${useCaseTitle}
+- ${useCaseObjective ? `**Objective:** ${useCaseObjective}` : ''}
+
+**STRICT RULE:** If the repository is for a COMPLETELY DIFFERENT topic, you MUST give a **Total Score of 0-5** and state "TOPIC MISMATCH" in the feedback.
+
+## THE CHALLENGE DETAILS
 ${domainChallenge ? `**Domain Challenge:** ${domainChallenge}` : ''}
-**Evaluation Phase:** ${phase}
+**Phase:** ${phase}
 
-## REQUIREMENTS TO EVALUATE
+## REQUIREMENTS TO VERIFY
 ${reqsFormatted}
 
-## REPOSITORY STATISTICS
-- Total files in repo: ${repoStats.totalFilesInRepo}
-- Code files found: ${repoStats.codeFilesFound}
-- Files analyzed: ${repoStats.filesAnalyzed}
-- File types: ${JSON.stringify(repoStats.filesByType)}
+## REPOSITORY METRICS
+- Files Read: ${repoStats.filesAnalyzed}
+- Total Items: ${repoStats.totalFilesInRepo}
+- Language Map: ${JSON.stringify(repoStats.filesByType)}
 
-## FILES ANALYZED
-${fileSummary}
+## ANALYSIS RULES (STRICT ENFORCEMENT)
+1. **Relevance & Logical Integrity (60% of Score)**:
+   - Does the code actually solve the assigned ${useCaseTitle} problem?
+   - Look for CUSTOM logic. If you only see boilerplate, score is 0-20.
+2. **Edge-Case Handling & Polish (20% of Score)**:
+   - Are there try-catch blocks? Input validation?
+3. **Scalability & Security (20% of Score)**:
+   - Any leaked secrets? Can this handle load?
 
-## SOURCE CODE
-${githubContext}
+### SCORING SCALE:
+- 95-100: ELITE. 75-94: ADVANCED. 50-74: INTERMEDIATE. 25-49: NOVICE. 0-5: MISMATCH/EMPTY.
 
-## EVALUATION RULES (CRITICAL — FOLLOW EXACTLY)
-
-### Scoring Guidelines:
-- **90-100**: Requirement is FULLY implemented with working code, proper error handling, and good practices
-- **70-89**: Requirement is MOSTLY implemented, core logic works but may have gaps
-- **50-69**: Requirement is PARTIALLY implemented — some code exists but incomplete or has bugs
-- **30-49**: Requirement is BARELY addressed — only boilerplate/skeleton code, no real logic
-- **10-29**: Requirement is MENTIONED in comments/README but no actual implementation
-- **0-9**: Requirement is completely MISSING from the codebase
-
-### What to check per requirement:
-1. Is there actual CODE that implements this? (not just comments or README mentions)
-2. Does the logic make sense for the requirement? (e.g., if requirement says "anomaly detection", is there an actual ML model or algorithm?)
-3. Are there proper data structures, APIs, or models being used?
-4. Is it working code or just placeholder/mock?
-5. For Phase 1: focus on architecture and setup. For Phase 2: core implementation. For Phase 3: completeness and polish.
-
-### Code Quality Assessment:
-- Code organization and structure
-- Proper error handling
-- Comments and documentation
-- No hardcoded credentials or sensitive data
-- Follows language best practices
-- Actual functional code vs boilerplate
-
-### Innovation Assessment:
-- Creative solutions beyond basic requirements
-- Use of advanced techniques or libraries
-- User experience considerations
-- Scalability and performance thinking
-
-## RESPOND WITH ONLY THIS JSON (no markdown, no explanation outside JSON):
+## RESPOND WITH VALID JSON ONLY:
 {
   "codeQuality": <0-100>,
   "reqSatisfaction": <0-100>,
   "innovation": <0-100>,
   "totalScore": <0-100>,
-  "requirementsMet": <count of requirements scored >= 70>,
-  "feedback": "<3-5 sentence summary: what's good, what's missing, what needs improvement. Be specific about FILE NAMES and LINE REFERENCES where possible>",
+  "requirementsMet": <count of requirements scored >= 75>,
+  "plagiarismRisk": "Low|Medium|High",
+  "identityVerified": <true|false>,
+  "feedback": "<4-6 sentence analytical report. Mention file names. Check identity.>",
   "detailedReport": [
     {
-      "req": "R1: <requirement text>",
-      "status": "Met|Partial|Not Met",
+      "req": "R1: <text>",
+      "status": "Elite|Met|Partial|Not Met",
       "score": <0-100>,
-      "explanation": "<2-3 sentences explaining what code you found (mention specific files), what it does, and why you gave this score>",
-      "filesFound": ["<list of files where you found relevant code>"],
-      "mistakes": ["<specific issues or improvements needed>"]
+      "explanation": "<evidence found in which files?>",
+      "filesFound": ["<list>"],
+      "mistakes": ["<issues>"]
     }
   ]
 }
 
-IMPORTANT:
-- "totalScore" should be the weighted average: (codeQuality * 0.25) + (reqSatisfaction * 0.50) + (innovation * 0.25)
-- "detailedReport" MUST have exactly ${reqsList.length} entries, one per requirement
-- Be STRICT. Empty repos = 0. Placeholder code = 10-20. Don't inflate scores.
-- Give credit where credit is due. If genuine work is done, score it fairly.`;
+## REPOSITORY CONTENT:
+${githubContext}`;
 
     console.log(`   📤 Sending to AI (context: ${(githubContext.length / 1024).toFixed(1)}KB)...`);
 
@@ -258,7 +271,7 @@ IMPORTANT:
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are a strict but fair hackathon technical judge. You evaluate code repositories by reading actual source files. You always respond with valid JSON only, no markdown formatting.'
+                        content: 'You are a strict but fair hackathon judge. Respond with valid JSON only.'
                     },
                     {
                         role: 'user',
@@ -266,8 +279,7 @@ IMPORTANT:
                     }
                 ],
                 response_format: { type: 'json_object' },
-                max_tokens: 4096,
-                temperature: 0.1, // Low temperature for consistent, factual evaluation
+                temperature: 0.2
             })
         });
 
@@ -325,7 +337,7 @@ function parseAIResponse(content) {
         } catch (e) { /* continue */ }
     }
 
-    // Strategy 3: Find the first { to last }
+    // Strategy 3: Find the first {to last }
     const firstBrace = content.indexOf('{');
     const lastBrace = content.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace > firstBrace) {
@@ -403,6 +415,8 @@ function sanitizeEvaluation(eval_, reqsList) {
         requirementsMet,
         feedback: String(eval_.feedback || 'Evaluation completed.'),
         detailedReport,
+        plagiarismRisk: String(eval_.plagiarismRisk || 'Low'),
+        identityVerified: Boolean(eval_.identityVerified !== false),
     };
 }
 
@@ -447,6 +461,12 @@ function keywordBasedEvaluation(githubData, reqsList, useCaseTitle) {
     qualityScore = Math.min(qualityScore, 75); // Cap at 75 for keyword-based
 
     // Per-requirement keyword analysis
+    let globalRelevance = 0;
+    const titleKeywords = useCaseTitle.toLowerCase().split(/[\s,\-&\/]+/).filter(w => w.length > 3);
+    for (const tw of titleKeywords) {
+        if (code.includes(tw)) globalRelevance += 1;
+    }
+
     const detailedReport = reqsList.map((req, i) => {
         const reqText = (typeof req === 'string' ? req : '').toLowerCase();
         const keywords = reqText.split(/[\s,\-&\/]+/).filter(w => w.length > 3);
@@ -473,7 +493,13 @@ function keywordBasedEvaluation(githubData, reqsList, useCaseTitle) {
         const techRatio = techKeywords.length > 0 ? techFound / techKeywords.length : 0;
 
         let score = Math.round((keywordRatio * 0.6 + techRatio * 0.4) * 60); // Max 60 for keyword-based
-        if (score > 0) score = Math.max(score, 15); // Minimum 15 if any match found
+
+        // RELEVANCE PENALTY: If use case keywords aren't found, slash the score
+        if (globalRelevance === 0 && titleKeywords.length > 0) {
+            score = Math.min(score, 5);
+        } else if (score > 0) {
+            score = Math.max(score, 15);
+        }
 
         let status = 'Not Met';
         if (score >= 50) status = 'Partial';
@@ -483,25 +509,31 @@ function keywordBasedEvaluation(githubData, reqsList, useCaseTitle) {
             req: `R${i + 1}: ${typeof req === 'string' ? req : 'Requirement'}`,
             status,
             score,
-            explanation: `⚠️ Keyword-based analysis (AI unavailable). Found ${found}/${totalKeywords} keywords${matchedKeywords.length > 0 ? `: ${matchedKeywords.slice(0, 5).join(', ')}` : ''}. ${techFound}/${techKeywords.length} tech patterns detected. This is an approximate score — re-evaluate with AI for accurate results.`,
+            explanation: globalRelevance === 0 && titleKeywords.length > 0
+                ? `❌ RELEVANCE CRITICAL FAILURE: Code does not appear related to ${useCaseTitle}.`
+                : `⚠️ Keyword analysis: Found ${found}/${totalKeywords} keywords. ${techFound} tech patterns.`,
             filesFound: [],
-            mistakes: score < 50 ? ['AI evaluation recommended for accurate assessment'] : [],
+            mistakes: globalRelevance === 0 ? ['Topic Mismatch Detected'] : ['AI evaluation recommended'],
         };
     });
 
     const reqSatisfaction = Math.round(detailedReport.reduce((sum, r) => sum + r.score, 0) / detailedReport.length);
     const requirementsMet = detailedReport.filter(r => r.score >= 70).length;
-    const innovation = Math.min(Math.round(qualityScore * 0.5), 40); // Conservative innovation score
+    const innovation = globalRelevance === 0 ? 0 : Math.min(Math.round(qualityScore * 0.5), 40);
 
-    const totalScore = Math.round((qualityScore * 0.25) + (reqSatisfaction * 0.50) + (innovation * 0.25));
+    const totalScore = globalRelevance === 0 && titleKeywords.length > 0
+        ? Math.min(Math.round((qualityScore * 0.1) + (reqSatisfaction * 0.9)), 10)
+        : Math.round((qualityScore * 0.25) + (reqSatisfaction * 0.50) + (innovation * 0.25));
 
     return {
-        codeQuality: qualityScore,
+        codeQuality: globalRelevance === 0 ? Math.min(qualityScore, 20) : qualityScore,
         reqSatisfaction,
         innovation,
         totalScore,
         requirementsMet,
-        feedback: `⚠️ KEYWORD-BASED EVALUATION (AI was unavailable). Found ${stats.codeFilesFound || 0} code files, analyzed ${stats.filesAnalyzed || 0}. Detected ${requirementsMet}/${reqsList.length} requirements with keyword matches. NOTE: This is an approximate evaluation — please re-run with AI enabled for accurate human-like assessment.`,
+        feedback: globalRelevance === 0 && titleKeywords.length > 0
+            ? `❌ TOPIC MISMATCH: The code in this repository does not seem to relate to the assigned use case (${useCaseTitle}). AI evaluation was skipped due to lack of relevance.`
+            : `⚠️ KEYWORD-BASED EVALUATION (AI Unavailable). Found ${stats.codeFilesFound || 0} code files. Detected ${requirementsMet}/${reqsList.length} requirements.`,
         detailedReport,
     };
 }
@@ -543,11 +575,11 @@ function extractTechKeywords(reqText) {
 /**
  * Save evaluation results to the database
  */
-async function saveEvaluation(submissionId, evaluation, reqsList, fileTree) {
+async function saveEvaluation(submissionId, evaluation, reqsList, fileTree, forgeLogs = []) {
     await pool.execute('DELETE FROM evaluation_results WHERE submission_id = ?', [submissionId]);
     await pool.execute(
-        `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report, file_tree)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO evaluation_results (submission_id, code_quality, req_satisfaction, innovation, total_score, requirements_met, total_requirements, feedback, detailed_report, file_tree, plagiarism_risk, identity_verified, forge_logs)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             submissionId,
             evaluation.codeQuality || 0,
@@ -558,7 +590,10 @@ async function saveEvaluation(submissionId, evaluation, reqsList, fileTree) {
             reqsList.length || 0,
             evaluation.feedback || '',
             JSON.stringify(evaluation.detailedReport || []),
-            JSON.stringify(fileTree || [])
+            JSON.stringify(fileTree || []),
+            evaluation.plagiarismRisk || 'Low',
+            evaluation.identityVerified ? 1 : 0,
+            JSON.stringify(forgeLogs)
         ]
     );
 }
@@ -567,7 +602,28 @@ async function saveEvaluation(submissionId, evaluation, reqsList, fileTree) {
 router.get('/status/:jobId', authMiddleware, adminOnly, (req, res) => {
     const job = evaluationQueue.getStatus(req.params.jobId);
     if (!job) return res.status(404).json({ error: 'Job not found' });
-    res.json(job);
+    
+    // Sanitize job object to ensure it's JSON serializable
+    const sanitized = {
+        id: job.id,
+        status: job.status,
+        result: job.result ? {
+            codeQuality: job.result.codeQuality || 0,
+            reqSatisfaction: job.result.reqSatisfaction || 0,
+            innovation: job.result.innovation || 0,
+            totalScore: job.result.totalScore || 0,
+            requirementsMet: job.result.requirementsMet || 0,
+            feedback: job.result.feedback || '',
+            detailedReport: Array.isArray(job.result.detailedReport) ? job.result.detailedReport : [],
+            plagiarismRisk: job.result.plagiarismRisk || 'Low',
+            identityVerified: Boolean(job.result.identityVerified),
+            forgeLogs: Array.isArray(job.result.forgeLogs) ? job.result.forgeLogs : []
+        } : null,
+        error: job.error || null,
+        timestamp: job.timestamp
+    };
+    
+    res.json(sanitized);
 });
 
 export default router;

@@ -66,7 +66,7 @@ export default function AdminMentorMarks() {
 
     // AI Score (average)
     const teamSubs = submissions.filter(s => s.team_id === parseInt(selectedTeam) || s.team_number === selectedTeamData?.team_number);
-    const teamEvals = teamSubs.map(s => evaluationResults[s.id]).filter(Boolean);
+    const teamEvals = teamSubs.map(s => evaluationResults[`sub_${s.id}`]).filter(Boolean);
     const aiScore = teamEvals.length ? Math.round(teamEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / teamEvals.length) : 0;
 
     // Normalizations
@@ -247,7 +247,7 @@ export default function AdminMentorMarks() {
                                     }
 
                                     const tSubs = submissions.filter(s => s.team_id === team.id || s.team_number === team.team_number);
-                                    const tEvals = tSubs.map(s => evaluationResults[s.id]).filter(Boolean);
+                                    const tEvals = tSubs.map(s => evaluationResults[`sub_${s.id}`]).filter(Boolean);
                                     const tAiScore = tEvals.length ? Math.round(tEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / tEvals.length) : 0;
 
                                     const tNormPhase = Math.round((tPhaseTotal / 60) * 100);

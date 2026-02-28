@@ -6,7 +6,7 @@ export default function AdminHome() {
 
     const issuedCertificates = certificates.length;
     const totalSubmissions = submissions.length;
-    const evaluatedCount = Object.keys(evaluationResults).length;
+    const evaluatedCount = Object.keys(evaluationResults).filter(k => k.startsWith('sub_')).length;
     const teamsWithAssignment = teams.filter(t => t.use_case_id).length;
     const teamsWithMembers = teams.filter(t => t.members?.length > 0).length;
     const markedTeams = Object.keys(mentorMarks).length;
@@ -115,7 +115,7 @@ export default function AdminHome() {
                                         <td><span className="badge badge-primary">R{sub.requirement_number}</span></td>
                                         <td><a href={sub.github_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', fontSize: '0.8rem' }}>{sub.github_url.replace('https://github.com/', '').substring(0, 30)}</a></td>
                                         <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(sub.timestamp).toLocaleTimeString()}</td>
-                                        <td>{evaluationResults[sub.id] ? <span className="badge badge-success">✅</span> : <span className="badge badge-warning">⏳</span>}</td>
+                                        <td>{evaluationResults[`sub_${sub.id}`] ? <span className="badge badge-success">✅</span> : <span className="badge badge-warning">⏳</span>}</td>
                                     </tr>
                                 ))}
                             </tbody>

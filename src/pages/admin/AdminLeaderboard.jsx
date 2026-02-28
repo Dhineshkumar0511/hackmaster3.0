@@ -142,7 +142,19 @@ export default function AdminLeaderboard() {
                                     </div>
                                 </td>
                                 <td>
-                                    <div style={{ fontWeight: 600 }}>{team.name}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ fontWeight: 600 }}>{team.name}</div>
+                                        {team.plagiarismRisk !== 'Low' && (
+                                            <span className="chip" style={{ background: 'rgba(255, 61, 113, 0.1)', color: 'var(--accent-magenta)', fontSize: '0.6rem', padding: '2px 6px' }}>
+                                                ⚠️ PLAGIARISM: {team.plagiarismRisk}
+                                            </span>
+                                        )}
+                                        {!team.identityVerified && (
+                                            <span className="chip" style={{ background: 'rgba(255, 152, 0, 0.1)', color: '#FF9800', fontSize: '0.6rem', padding: '2px 6px' }}>
+                                                🆔 IDENTITY MISMATCH
+                                            </span>
+                                        )}
+                                    </div>
                                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Team #{team.teamNumber}</div>
                                 </td>
                                 <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '200px' }}>

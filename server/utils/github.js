@@ -96,7 +96,13 @@ export async function fetchGithubRepoContent(githubUrl) {
 
     try {
         // Parse owner/repo from URL
-        const cleaned = githubUrl.replace(/\/$/, '').replace(/\.git$/, '');
+        // Remove trailing slash, .git, and /tree/branch-name pattern
+        let cleaned = githubUrl.replace(/\/$/, '').replace(/\.git$/, '');
+        // Remove /tree/any-branch-name from the URL
+        cleaned = cleaned.replace(/\/tree\/[^\/]+$/, '');
+        // Remove /blob/any-branch-name from the URL
+        cleaned = cleaned.replace(/\/blob\/[^\/]+$/, '');
+        
         const parts = cleaned.split('/');
         const repo = parts.pop();
         const owner = parts.pop();
@@ -113,6 +119,20 @@ export async function fetchGithubRepoContent(githubUrl) {
         if (process.env.GITHUB_TOKEN) {
             headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
         }
+
+        // ---- PHASE 0: Get Repo Metadata (Identity Verification) ----
+        const [repoData, contributorsData] = await Promise.all([
+            githubFetch(`${GITHUB_API}/repos/${owner}/${repo}`, headers),
+            githubFetch(`${GITHUB_API}/repos/${owner}/${repo}/contributors`, headers)
+        ]);
+
+        const meta = {
+            owner: repoData?.owner?.login || owner,
+            createdAt: repoData?.created_at || 'unknown',
+            updatedAt: repoData?.updated_at || 'unknown',
+            contributors: Array.isArray(contributorsData) ? contributorsData.map(c => c.login) : [],
+            description: repoData?.description || ''
+        };
 
         // ---- PHASE 1: Get full repo tree in ONE API call ----
         // This is much more efficient than recursive directory listing
@@ -312,7 +332,7 @@ export async function fetchGithubRepoContent(githubUrl) {
             fileTree,
             fileContents, // structured array
             stats: summary,
-            repoInfo: { owner, repo },
+            repoInfo: { owner, repo, ...meta },
         };
 
     } catch (e) {

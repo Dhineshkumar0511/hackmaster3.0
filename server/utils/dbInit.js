@@ -29,6 +29,17 @@ export async function initDb() {
     )
   `);
 
+  // TiDB Column Sync Logic
+  try {
+    const [cols] = await pool.execute('DESCRIBE teams');
+    if (!cols.some(c => c.Field === 'batch')) {
+      console.log('⚡ Adding `batch` column to teams...');
+      await pool.execute("ALTER TABLE teams ADD COLUMN batch VARCHAR(10) DEFAULT '2027'");
+    }
+  } catch (err) {
+    console.warn('⚠️ Column sync warning (may already exist):', err.message);
+  }
+
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS submissions (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -47,7 +58,8 @@ export async function initDb() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS evaluation_results (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      submission_id INT UNIQUE NOT NULL,
+      submission_id INT UNIQUE,
+      team_id INT,
       code_quality INT DEFAULT 0,
       req_satisfaction INT DEFAULT 0,
       innovation INT DEFAULT 0,
@@ -57,10 +69,25 @@ export async function initDb() {
       feedback TEXT,
       detailed_report LONGTEXT,
       file_tree LONGTEXT,
+      forge_logs LONGTEXT,
+      plagiarism_risk VARCHAR(50) DEFAULT 'Low', -- Low, Medium, High
+      identity_verified BOOLEAN DEFAULT TRUE,
       evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (submission_id) REFERENCES submissions(id)
+      FOREIGN KEY (submission_id) REFERENCES submissions(id),
+      FOREIGN KEY (team_id) REFERENCES teams(id)
     )
   `);
+
+  // Ensure forge_logs column exists (migration for existing DBs)
+  try {
+    const [cols] = await pool.execute('DESCRIBE evaluation_results');
+    if (!cols.some(c => c.Field === 'forge_logs')) {
+      console.log('⚡ Adding `forge_logs` column to evaluation_results...');
+      await pool.execute('ALTER TABLE evaluation_results ADD COLUMN forge_logs LONGTEXT');
+    }
+  } catch (err) {
+    console.warn('⚠️ forge_logs column sync warning (may already exist):', err.message);
+  }
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS mentor_marks (

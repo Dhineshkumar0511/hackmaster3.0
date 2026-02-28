@@ -25,7 +25,6 @@ export default function TeamLeaderboard() {
 
             setNextCeremony(`${m}:${s.toString().padStart(2, '0')}`);
 
-            // Trigger ceremony on the hour
             if (now.getMinutes() === 0 && now.getSeconds() < 2) {
                 setShowCeremony(true);
             }
@@ -43,6 +42,7 @@ export default function TeamLeaderboard() {
             0%, 100% { filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.2)); }
             50% { filter: drop-shadow(0 0 25px rgba(0, 212, 255, 0.4)); }
         }
+        
         .podium-container {
             display: flex;
             justify-content: center;
@@ -112,8 +112,9 @@ export default function TeamLeaderboard() {
         const isUserTeam = team.id === user?.teamId;
 
         return (
-            <div className={`top-team-card rank-${rank}`} style={{
+            <div className={`top-team-card rank-${rank} ${isUserTeam ? 'slayer-glow' : ''}`} style={{
                 borderTop: `4px solid ${color}`,
+                background: 'rgba(255, 255, 255, 0.03)',
                 boxShadow: isUserTeam ? `0 0 30px ${color}20 inset, 0 20px 40px rgba(0,0,0,0.4)` : '0 20px 40px rgba(0,0,0,0.4)'
             }}>
                 <Icon size={rank === 1 ? 52 : 40} color={color} className="crown-icon" />
@@ -122,7 +123,9 @@ export default function TeamLeaderboard() {
                     <div style={{ fontSize: '0.8rem', fontWeight: 800, color, letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>
                         Rank #{rank}
                     </div>
-                    <h3 style={{ fontSize: rank === 1 ? '1.8rem' : '1.4rem', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.02em' }}>{team.name}</h3>
+                    <h3 style={{ fontSize: rank === 1 ? '1.8rem' : '1.4rem', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '-0.02em' }}>
+                        {team.name}
+                    </h3>
                     {isUserTeam && <div style={{ fontSize: '0.7rem', color, fontWeight: 700, marginTop: '4px' }}>✨ YOUR TEAM</div>}
                 </div>
 

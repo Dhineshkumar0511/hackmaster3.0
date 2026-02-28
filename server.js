@@ -28,6 +28,7 @@ import settingsRoutes from './server/routes/settings.js';
 import certificateRoutes from './server/routes/certificates.js';
 import useCaseRoutes from './server/routes/useCases.js';
 import userRoutes from './server/routes/users.js';
+import adminActionRoutes from './server/routes/adminActions.js';
 
 dotenv.config();
 
@@ -53,6 +54,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/use-cases', useCaseRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/admin-system', adminActionRoutes);
 
 // Global Stats & Leaderboard
 app.get('/api/leaderboard', async (req, res) => {
@@ -97,9 +99,19 @@ if (existsSync(DIST_PATH)) {
 
 // Start Server
 async function start() {
-    await initDb();
-    await seedInitialData();
-    app.listen(PORT, () => console.log(`🚀 HackMaster running on http://localhost:${PORT}`));
+    try {
+        await initDb();
+        console.log('🔍 Checking `teams` table schema...');
+        const [testCols] = await pool.query('SHOW COLUMNS FROM `teams`');
+        console.log('📄 TEAMS DB COLUMNS:', testCols.map(c => c.Field).join(', '));
+
+        await seedInitialData();
+
+        app.listen(PORT, () => console.log(`🚀 HackMaster running on http://localhost:${PORT}`));
+    } catch (err) {
+        console.error('❌ CRITICAL STARTUP ERROR:', err);
+        process.exit(1);
+    }
 }
 
 start();

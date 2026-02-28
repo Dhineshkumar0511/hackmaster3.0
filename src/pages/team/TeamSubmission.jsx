@@ -171,7 +171,7 @@ export default function TeamSubmission() {
                             </thead>
                             <tbody>
                                 {mySubmissions.map((sub, idx) => {
-                                    const evalResult = evaluationResults[sub.id];
+                                    const evalResult = evaluationResults[`sub_${sub.id}`];
                                     return (
                                         <tr key={sub.id}>
                                             <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{idx + 1}</td>
@@ -208,9 +208,17 @@ export default function TeamSubmission() {
                     <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
                         <div className="modal-header">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div className="mark-circle" style={{ width: '50px', height: '50px' }}>{selectedReport.report.total_score}</div>
+                                <div className="mark-circle" style={{
+                                    width: '50px', height: '50px',
+                                    background: selectedReport.report.plagiarism_risk !== 'Low' || !selectedReport.report.identity_verified ? 'rgba(255, 61, 113, 0.2)' : 'var(--primary)',
+                                    border: selectedReport.report.plagiarism_risk !== 'Low' || !selectedReport.report.identity_verified ? '2px solid var(--accent-red)' : '2px solid var(--primary-light)'
+                                }}>{selectedReport.report.total_score}</div>
                                 <div>
-                                    <h3 style={{ margin: 0 }}>AI Technical Audit Report</h3>
+                                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        AI Technical Audit Report
+                                        {selectedReport.report.plagiarism_risk !== 'Low' && <span className="badge badge-danger" style={{ fontSize: '0.6rem' }}>⚠️ PLAGIARISM RISK: {selectedReport.report.plagiarism_risk}</span>}
+                                        {!selectedReport.report.identity_verified && <span className="badge badge-warning" style={{ fontSize: '0.6rem' }}>🆔 IDENTITY RECHECK NEEDED</span>}
+                                    </h3>
                                     <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{selectedReport.sub.phase} • Team: {user?.teamName || `Team ${user?.teamNumber}`}</p>
                                 </div>
                             </div>

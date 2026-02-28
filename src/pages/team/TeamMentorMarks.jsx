@@ -56,7 +56,7 @@ export default function TeamMentorMarks() {
                     const normReq = reqMax > 0 ? Math.round((reqTotal / reqMax) * 100) : 0;
 
                     const tSubs = submissions.filter(s => s.team_id === team.id || s.team_number === team.team_number);
-                    const tEvals = tSubs.map(s => evaluationResults[s.id]).filter(Boolean);
+                    const tEvals = tSubs.map(s => evaluationResults[`sub_${s.id}`]).filter(Boolean);
                     const aiScore = tEvals.length ? Math.round(tEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / tEvals.length) : 0;
 
                     const grandTotal = Math.round((aiScore + normPhase + normReq) / 3);

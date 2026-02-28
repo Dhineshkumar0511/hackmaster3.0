@@ -160,7 +160,10 @@ function App() {
             const batch = user?.role === 'admin' ? selectedBatch : (user?.batch || '2027');
             const data = await apiFetch(`/evaluations?batch=${batch}`);
             const map = {};
-            data.forEach(ev => { map[ev.submission_id] = ev; });
+            data.forEach(ev => {
+                if (ev.submission_id) map[`sub_${ev.submission_id}`] = ev;
+                if (ev.team_id) map[`team_${ev.team_id}`] = ev;
+            });
             setEvaluationResults(map);
         } catch (err) {
             console.error('Error fetching evaluations:', err);
@@ -357,61 +360,59 @@ function App() {
 
     // ---- Leaderboard ----
     const getLeaderboardData = useCallback(() => {
-        return teams.map(team => {
-            const teamSubs = submissions.filter(s => s.team_id === team.id || s.team_number === team.team_number);
-            const teamEvals = teamSubs
-                .map(s => evaluationResults[s.id])
-                .filter(Boolean);
+        return teams
+            .filter(t => !t.ghost_team) // Exclude any existing ghost teams
+            .map(team => {
+                const teamSubs = submissions.filter(s => s.team_id === team.id || s.team_number === team.team_number);
+                const teamEvals = teamSubs.map(s => evaluationResults[`sub_${s.id}`]).filter(Boolean);
 
-            const aiScore = teamEvals.length
-                ? Math.round(teamEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / teamEvals.length)
-                : 0;
+                const aiScore = teamEvals.length
+                    ? Math.round(teamEvals.reduce((sum, e) => sum + (e.total_score || 0), 0) / teamEvals.length)
+                    : 0;
 
-            const marks = mentorMarks[team.id] || {};
-            // Phase marks (6 × 10 = 60)
-            const phaseScore = (marks.phase1 || 0) + (marks.phase2 || 0) + (marks.phase3 || 0)
-                + (marks.innovation || 0) + (marks.presentation || 0) + (marks.teamwork || 0);
+                const marks = mentorMarks[team.id] || {};
+                const phaseScore = (marks.phase1 || 0) + (marks.phase2 || 0) + (marks.phase3 || 0)
+                    + (marks.innovation || 0) + (marks.presentation || 0) + (marks.teamwork || 0);
 
-            // Requirement marks
-            const uc = team.use_case_id ? useCases.find(u => u.id === team.use_case_id) : null;
+                const uc = team.use_case_id ? useCases.find(u => u.id === team.use_case_id) : null;
 
-            let reqScore = 0;
-            if (uc && uc.requirements) {
-                for (let i = 1; i <= uc.requirements.length; i++) {
-                    reqScore += (Number(marks[`req${i}`]) || 0);
+                let reqScore = 0;
+                if (uc && uc.requirements) {
+                    for (let i = 1; i <= uc.requirements.length; i++) {
+                        reqScore += (Number(marks[`req${i}`]) || 0);
+                    }
                 }
-            }
 
-            // Normalization to 100 scale
-            const normAi = aiScore;
-            const normPhase = Math.round((phaseScore / 60) * 100);
-            const normReq = (uc && uc.requirements && uc.requirements.length > 0) ? Math.round((reqScore / (uc.requirements.length * 10)) * 100) : 0;
+                const normAi = aiScore;
+                const normPhase = Math.round((phaseScore / 60) * 100);
+                const normReq = (uc && uc.requirements && uc.requirements.length > 0) ? Math.round((reqScore / (uc.requirements.length * 10)) * 100) : 0;
 
-            // Consolidated Total (Average of the three components)
-            const totalScore = Math.round((normAi + normPhase + normReq) / 3);
+                const totalScore = Math.round((normAi + normPhase + normReq) / 3);
 
-            const reqSatisfied = teamEvals.reduce((sum, e) => sum + (e.requirements_met || 0), 0);
-            const totalReqs = teamEvals.reduce((sum, e) => sum + (e.total_requirements || 0), 0);
+                const reqSatisfied = teamEvals.reduce((sum, e) => sum + (e.requirements_met || 0), 0);
+                const totalReqs = teamEvals.reduce((sum, e) => sum + (e.total_requirements || 0), 0);
 
-            const ucIdx = uc ? useCases.findIndex(u => u.id === uc.id) : -1;
+                const ucIdx = uc ? useCases.findIndex(u => u.id === uc.id) : -1;
 
-            return {
-                id: team.id,
-                teamNumber: team.team_number,
-                name: team.name,
-                useCaseId: team.use_case_id,
-                useCaseTitle: uc ? `#${ucIdx + 1} ${uc.title}` : 'Not Assigned',
-                aiScore,
-                phaseScore, // Raw sum (out of 60)
-                reqScore: normReq, // Normalized (out of 100)
-                normPhase, // Normalized (out of 100)
-                totalScore,
-                submissionCount: teamSubs.length,
-                reqSatisfied,
-                totalReqs,
-            };
-        }).sort((a, b) => b.totalScore - a.totalScore);
-    }, [teams, submissions, evaluationResults, mentorMarks]);
+                return {
+                    id: team.id,
+                    teamNumber: team.team_number,
+                    name: team.name,
+                    useCaseId: team.use_case_id,
+                    useCaseTitle: uc ? `#${ucIdx + 1} ${uc.title}` : 'Not Assigned',
+                    aiScore,
+                    phaseScore,
+                    reqScore: normReq,
+                    normPhase,
+                    totalScore,
+                    submissionCount: teamSubs.length,
+                    reqSatisfied,
+                    totalReqs,
+                    plagiarismRisk: teamEvals[0]?.plagiarism_risk || 'Low',
+                    identityVerified: teamEvals.length === 0 || teamEvals[0]?.identity_verified !== 0
+                };
+            }).sort((a, b) => b.totalScore - a.totalScore);
+    }, [teams, submissions, evaluationResults, mentorMarks, useCases]);
 
     // ---- Context Value ----
     const contextValue = {
@@ -492,6 +493,11 @@ function App() {
                         <span>{toast.message}</span>
                     </div>
                 )}
+
+                {/* DEBUG STATUS */}
+                <div style={{ position: 'fixed', bottom: 5, right: 5, fontSize: '10px', opacity: 0.3, zIndex: 9999, color: 'white', pointerEvents: 'none' }}>
+                    HM3.0 | {user ? user.username : 'GUEST'} | B:{selectedBatch} | T:{teams.length}
+                </div>
 
                 <Routes>
                     <Route path="/" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/team'} /> : <LoginPage />} />
