@@ -1,10 +1,38 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../App';
-import { Trophy, Zap, Shield, Activity, Crown, Star } from 'lucide-react';
+import { Trophy, Zap, Shield, Activity, Crown, Star, Clock } from 'lucide-react';
+import PrizeCeremony from '../../components/PrizeCeremony';
 
 export default function TeamLeaderboard() {
     const { getLeaderboardData, user } = useAppContext();
+    const [showCeremony, setShowCeremony] = useState(false);
+    const [nextCeremony, setNextCeremony] = useState('');
     const leaderboard = getLeaderboardData() || [];
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const now = new Date();
+            const hours = now.getHours();
+            const targetHour = hours % 2 === 0 ? hours + 2 : hours + 1;
+
+            const target = new Date();
+            target.setHours(targetHour, 0, 0, 0);
+
+            const diff = target - now;
+            const h = Math.floor(diff / (1000 * 60 * 60));
+            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const s = Math.floor((diff % (1000 * 60)) / 1000);
+
+            setNextCeremony(`${m}:${s.toString().padStart(2, '0')}`);
+
+            // Trigger ceremony on the hour
+            if (now.getMinutes() === 0 && now.getSeconds() < 2) {
+                setShowCeremony(true);
+            }
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, []);
 
     const customStyles = `
         @keyframes subtle-float {
@@ -125,13 +153,20 @@ export default function TeamLeaderboard() {
     }
 
     return (
-        <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '6rem' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '6rem', position: 'relative' }}>
             <style dangerouslySetInnerHTML={{ __html: customStyles }} />
+            {showCeremony && <PrizeCeremony leaderboard={leaderboard} onClose={() => setShowCeremony(false)} />}
 
             <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '8px 20px', background: 'rgba(0, 212, 255, 0.05)', borderRadius: '100px', border: '1px solid rgba(0, 212, 255, 0.1)', marginBottom: '1.5rem' }}>
-                    <div className="pulse" style={{ width: '8px', height: '8px', background: '#00d4ff', borderRadius: '50%' }}></div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#00d4ff', letterSpacing: '3px', textTransform: 'uppercase' }}>Live Ranking Matrix</span>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '15px', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '8px 20px', background: 'rgba(0, 212, 255, 0.05)', borderRadius: '100px', border: '1px solid rgba(0, 212, 255, 0.1)' }}>
+                        <div className="pulse" style={{ width: '8px', height: '8px', background: '#00d4ff', borderRadius: '50%' }}></div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#00d4ff', letterSpacing: '3px', textTransform: 'uppercase' }}>Live Ranking Matrix</span>
+                    </div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '8px 20px', background: 'rgba(255, 0, 110, 0.05)', borderRadius: '100px', border: '1px solid rgba(255, 0, 110, 0.1)' }}>
+                        <Clock size={14} color="#FF006E" />
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#FF006E', letterSpacing: '1px' }}>Ceremony in {nextCeremony}</span>
+                    </div>
                 </div>
                 <h1 style={{ fontSize: '4.5rem', fontWeight: 950, letterSpacing: '-0.05em', lineHeight: 1, margin: 0 }}>
                     <span className="gradient-text">Top Performers</span>

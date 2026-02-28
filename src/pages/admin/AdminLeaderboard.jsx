@@ -1,15 +1,41 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../App';
+import PrizeCeremony from '../../components/PrizeCeremony';
+import { PlayCircle, Clock } from 'lucide-react';
 
 export default function AdminLeaderboard() {
     const { getLeaderboardData, batches, selectedBatch, setSelectedBatch } = useAppContext();
+    const [showCeremony, setShowCeremony] = useState(false);
     const leaderboard = getLeaderboardData();
 
+    // Auto-trigger logic (Optional: every 2 hours)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = new Date();
+            // Trigger if it's an even hour and very close to the start (e.g., 2:00, 4:00)
+            if (now.getHours() % 2 === 0 && now.getMinutes() === 0 && now.getSeconds() < 10) {
+                setShowCeremony(true);
+            }
+        }, 1000 * 10); // Check every 10s
+        return () => clearInterval(interval);
+    }, []);
+
     return (
-        <div>
-            <div className="page-header">
-                <h2 className="gradient-text">🏆 Leaderboard</h2>
-                <p>Live rankings based on AI evaluation scores + mentor marks</p>
+        <div style={{ position: 'relative' }}>
+            {showCeremony && <PrizeCeremony leaderboard={leaderboard} onClose={() => setShowCeremony(false)} />}
+
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                    <h2 className="gradient-text">🏆 Leaderboard</h2>
+                    <p>Live rankings based on AI evaluation scores + mentor marks</p>
+                </div>
+                <button
+                    className="btn"
+                    onClick={() => setShowCeremony(true)}
+                    style={{ background: 'rgba(108, 99, 255, 0.1)', border: '1px solid var(--primary)', color: 'var(--primary-light)', padding: '10px 20px', fontSize: '0.8rem', fontWeight: 800 }}
+                >
+                    <PlayCircle size={16} /> TRIGGER PRIZE CEREMONY
+                </button>
             </div>
 
             {/* Batch Selector */}
