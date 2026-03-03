@@ -91,7 +91,7 @@ router.post('/', authMiddleware, adminOnly, async (req, res) => {
 const evaluationWorker = async (data, job) => {
     const {
         submissionId, useCaseTitle, requirementText, githubUrl, phase,
-        allRequirements, useCaseObjective, domainChallenge
+        allRequirements, useCaseObjective, domainChallenge, skipForge
     } = data;
 
     try {
@@ -131,27 +131,30 @@ const evaluationWorker = async (data, job) => {
             return evaluation;
         }
 
-        // ---- STEP 1b: Run actual code via Forge ----
+        // ---- STEP 1b: Run actual code via Forge (skip if AI-only evaluation) ----
         let execOutput = '';
         let forgeLogs = [];
-        const forgeId = `eval_${submissionId}_${Date.now()}`;
-        try {
-            console.log(`   🔨 Running Forge code execution for submission ${submissionId}...`);
-            const forgeResult = await forgeAudit(finalUrl, forgeId);
-            if (forgeResult.success) {
-                forgeLogs = forgeResult.buildLogs || [];
-                if (forgeResult.execResult?.ran) {
-                    const exec = forgeResult.execResult;
-                    execOutput = `\n\n## CODE EXECUTION RESULT\nEntry Point: ${exec.mainFile}\nExit Status: ${exec.exitSuccess ? 'Success' : exec.timedOut ? 'Timeout (server/app kept running)' : 'Error'}\n\nExecution Output:\n\`\`\`\n${exec.output || '(no output)'}\n\`\`\``;
-                    console.log(`   ✅ Forge executed ${exec.mainFile}: ${exec.output?.substring(0, 100)}...`);
-                } else {
-                    console.log(`   ⚠️ Forge execution skipped: ${forgeResult.execResult?.runLogs?.[0]?.text || 'no entry point'}`);
+        if (!skipForge) {
+            const forgeId = `eval_${submissionId}_${Date.now()}`;
+            try {
+                console.log(`   🔨 Running Forge code execution for submission ${submissionId}...`);
+                const forgeResult = await forgeAudit(finalUrl, forgeId);
+                if (forgeResult.success) {
+                    forgeLogs = forgeResult.buildLogs || [];
+                    if (forgeResult.execResult?.ran) {
+                        const exec = forgeResult.execResult;
+                        execOutput = `\n\n## CODE EXECUTION RESULT\nEntry Point: ${exec.mainFile}\nExit Status: ${exec.exitSuccess ? 'Success' : exec.timedOut ? 'Timeout (server/app kept running)' : 'Error'}\n\nExecution Output:\n\`\`\`\n${exec.output || '(no output)'}\n\`\`\``;
+                        console.log(`   ✅ Forge executed ${exec.mainFile}: ${exec.output?.substring(0, 100)}...`);
+                    } else {
+                        console.log(`   ⚠️ Forge execution skipped: ${forgeResult.execResult?.runLogs?.[0]?.text || 'no entry point'}`);
+                    }
                 }
+                try { await cleanupForge(forgeId); } catch (_) {}
+            } catch (forgeErr) {
+                console.warn(`   ⚠️ Forge execution failed (non-fatal): ${forgeErr.message}`);
             }
-            // Clean up after execution
-            try { await cleanupForge(forgeId); } catch (_) {}
-        } catch (forgeErr) {
-            console.warn(`   ⚠️ Forge execution failed (non-fatal): ${forgeErr.message}`);
+        } else {
+            console.log(`   ⏩ Skipping Forge (AI-only evaluation mode)`);
         }
 
         // ---- STEP 2: Build context ----

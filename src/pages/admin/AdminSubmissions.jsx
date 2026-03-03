@@ -43,14 +43,15 @@ export default function AdminSubmissions() {
                     requirementText: requirementText,
                     githubUrl: submission.github_url,
                     phase: submission.phase,
-                    allRequirements: useCase?.requirements || []
+                    allRequirements: useCase?.requirements || [],
+                    skipForge: true  // 🤖 AI-only: skip forge clone/run for speed
                 }),
             });
 
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Evaluation failed');
 
-            // Start Polling for Job Status
+            // Start Polling for Job Status (5 min timeout)
             const jobId = data.jobId;
             let pollCount = 0;
             const poll = setInterval(async () => {
@@ -74,14 +75,14 @@ export default function AdminSubmissions() {
 
                     if (job.status === 'completed') {
                         clearInterval(poll);
-                        showToast(`✅ Evaluation complete for Team #${submission.team_number}`, 'success');
+                        showToast(`✅ AI Evaluation complete for Team #${submission.team_number}`, 'success');
                         fetchEvaluations();
                         setEvaluatingId(null);
                     } else if (job.status === 'failed') {
                         clearInterval(poll);
                         showToast(`❌ Evaluation failed: ${job.error || 'Unknown error'}`, 'error');
                         setEvaluatingId(null);
-                    } else if (pollCount > 60) { // 1 minute timeout
+                    } else if (pollCount > 150) { // 5 minute timeout
                         clearInterval(poll);
                         showToast('⌛ Evaluation timed out. Try again later.', 'error');
                         setEvaluatingId(null);
@@ -238,7 +239,8 @@ export default function AdminSubmissions() {
                     requirementText: requirementText,
                     githubUrl: submission.github_url,
                     phase: submission.phase,
-                    allRequirements: useCase?.requirements || []
+                    allRequirements: useCase?.requirements || [],
+                    skipForge: true  // forge already ran via handleForge above — skip in worker
                 }),
             });
             const data = await res.json();
@@ -261,7 +263,7 @@ export default function AdminSubmissions() {
                         clearInterval(poll);
                         showToast(`❌ AI failed: ${job.error || 'Unknown error'}`, 'error');
                         setEvaluatingId(null);
-                    } else if (pollCount > 60) { clearInterval(poll); setEvaluatingId(null); }
+                    } else if (pollCount > 150) { clearInterval(poll); setEvaluatingId(null); }
                 } catch (e) { clearInterval(poll); setEvaluatingId(null); }
             }, 2000);
         } catch (error) {
