@@ -219,14 +219,16 @@ export async function forgeAudit(githubUrl, submissionId) {
 
         // Try to run build/install commands and capture output
         const buildLogs = [];
+        let venvPython = null; // Track venv python path for later execution
+
         try {
             if (stats.hasPackageJson) {
                 buildLogs.push({ type: 'cmd', text: '> npm install --production 2>&1' });
                 try {
-                    const { stdout, stderr } = await execAsync(`cd "${clonePath}" && npm install --production 2>&1`, { timeout: 45000 });
+                    const { stdout, stderr } = await execAsync(`npm install --production`, { timeout: 60000, cwd: clonePath });
                     const output = (stdout || stderr || '').trim();
-                    const lines = output.split('\n').slice(-5); // last 5 lines
-                    lines.forEach(l => buildLogs.push({ type: 'info', text: l }));
+                    const lines = output.split('\n').slice(-5);
+                    lines.forEach(l => { if (l.trim()) buildLogs.push({ type: 'info', text: l }); });
                     buildLogs.push({ type: 'success', text: '✅ npm install successful' });
                     stats.buildSuccess = true;
                 } catch (buildErr) {
@@ -234,22 +236,42 @@ export async function forgeAudit(githubUrl, submissionId) {
                     stats.buildSuccess = false;
                 }
             } else if (stats.hasRequirementsTxt) {
-                buildLogs.push({ type: 'cmd', text: '> pip install -r requirements.txt --dry-run 2>&1' });
+                // Create a virtualenv and install deps so execution works
+                const venvPath = path.join(clonePath, '.forge_venv');
+                buildLogs.push({ type: 'cmd', text: '> python -m venv .forge_venv && pip install -r requirements.txt' });
                 try {
-                    const { stdout } = await execAsync(`pip install -r "${path.join(clonePath, 'requirements.txt')}" --dry-run 2>&1`, { timeout: 30000 });
-                    const lines = (stdout || '').trim().split('\n').slice(-5);
-                    lines.forEach(l => buildLogs.push({ type: 'info', text: l }));
-                    buildLogs.push({ type: 'success', text: '✅ pip dependencies verified' });
+                    // Create venv
+                    await execAsync(`python -m venv "${venvPath}"`, { timeout: 30000 });
+                    // Determine venv python path
+                    const isWin = process.platform === 'win32';
+                    venvPython = isWin
+                        ? path.join(venvPath, 'Scripts', 'python.exe')
+                        : path.join(venvPath, 'bin', 'python');
+                    // Install requirements in venv
+                    const pipPath = isWin
+                        ? path.join(venvPath, 'Scripts', 'pip.exe')
+                        : path.join(venvPath, 'bin', 'pip');
+                    const reqFile = path.join(clonePath, 'requirements.txt');
+                    const { stdout, stderr } = await execAsync(
+                        `"${pipPath}" install -r "${reqFile}" --quiet --no-warn-script-location 2>&1`,
+                        { timeout: 90000 }
+                    );
+                    const output = ((stdout || '') + (stderr || '')).trim();
+                    const lines = output.split('\n').slice(-5);
+                    lines.forEach(l => { if (l.trim()) buildLogs.push({ type: 'info', text: l }); });
+                    buildLogs.push({ type: 'success', text: '✅ pip install successful (venv created)' });
                     stats.buildSuccess = true;
                 } catch (buildErr) {
-                    buildLogs.push({ type: 'error', text: `❌ pip check failed: ${(buildErr.message || '').substring(0, 150)}` });
+                    const msg = (buildErr.stderr || buildErr.message || '').substring(0, 200);
+                    buildLogs.push({ type: 'error', text: `❌ pip install failed: ${msg}` });
                     stats.buildSuccess = false;
+                    venvPython = null; // fallback to system python
                 }
             }
         } catch (_) { /* build check is optional */ }
 
         // ---- STEP: Execute main file and capture output ----
-        const execResult = await forgeExecuteMain(clonePath, stats);
+        const execResult = await forgeExecuteMain(clonePath, stats, venvPython);
         if (execResult.runLogs?.length > 0) {
             buildLogs.push({ type: 'info', text: '─── Code Execution ───' });
             buildLogs.push(...execResult.runLogs);
@@ -283,11 +305,13 @@ export async function cleanupForge(submissionId) {
  * 🚀 FORGE EXECUTE: Find and run the main entry point of the project
  * Captures output to verify requirements and detect runtime behavior.
  */
-async function forgeExecuteMain(clonePath, stats) {
+async function forgeExecuteMain(clonePath, stats, venvPython = null) {
     const runLogs = [];
     let mainFile = null;
     let runCommand = null;
     let language = null;
+    // Use venv python if available (deps installed), else fall back to system python
+    const pythonExe = venvPython || 'python';
 
     // ---- Detect entry point from README if available ----
     let readmeHint = '';
@@ -323,7 +347,11 @@ async function forgeExecuteMain(clonePath, stats) {
         }
 
         if (mainFile) {
-            runCommand = `python "${path.join(clonePath, mainFile)}"`;
+            // If mainFile is in a subdirectory, compute full absolute path
+            const mainAbsPath = mainFile.includes(path.sep) || mainFile.includes('/')
+                ? path.join(clonePath, mainFile)
+                : path.join(clonePath, mainFile);
+            runCommand = `"${pythonExe}" "${mainAbsPath}"`;
         }
     }
 

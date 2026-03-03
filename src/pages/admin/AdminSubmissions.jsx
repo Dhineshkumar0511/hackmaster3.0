@@ -125,7 +125,10 @@ export default function AdminSubmissions() {
 
             // Simulated progress for UI feel
             setTimeout(() => setTerminalLogs(prev => [...prev, { type: 'info', text: '📦 Receiving objects...' }]), 500);
-            setTimeout(() => setTerminalLogs(prev => [...prev, { type: 'info', text: '🔨 Scanning project structure...' }]), 1000);
+            setTimeout(() => setTerminalLogs(prev => [...prev, { type: 'info', text: '🔨 Scanning project structure...' }]), 1500);
+            setTimeout(() => setTerminalLogs(prev => [...prev, { type: 'info', text: '📚 Installing dependencies (this may take 30-90s)...' }]), 4000);
+            setTimeout(() => setTerminalLogs(prev => [...prev, { type: 'info', text: '⏳ Still installing packages...' }]), 30000);
+            setTimeout(() => setTerminalLogs(prev => [...prev, { type: 'info', text: '⚙️ Almost done, preparing to execute...' }]), 60000);
 
             const res = await fetch('/api/admin-system/forge/verify', {
                 method: 'POST',
@@ -213,6 +216,59 @@ export default function AdminSubmissions() {
     };
 
     // ... handleEvaluateAll and filteredSubmissions logic ...
+
+    // Full Audit: Forge first (shows terminal), then auto-trigger AI evaluation
+    const handleFullAudit = async (submission) => {
+        // Step 1: Run Forge
+        await handleForge(submission);
+        // Step 2: Immediately queue AI evaluation (forge context is captured server-side inside evaluate)
+        setEvaluatingId(submission.id);
+        try {
+            const useCase = findUseCase(submission.use_case_id);
+            const requirement = useCase?.requirements?.[submission.requirement_number - 1] || 'Unknown';
+            const token = localStorage.getItem('hackmaster_token');
+            const res = await fetch('/api/evaluations/evaluate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                    submissionId: submission.id,
+                    useCaseTitle: useCase?.title || 'Unknown',
+                    useCaseObjective: useCase?.objective || '',
+                    domainChallenge: useCase?.domainChallenge || '',
+                    requirementText: `R${submission.requirement_number}: ${requirement}`,
+                    githubUrl: submission.github_url,
+                    phase: submission.phase,
+                    allRequirements: useCase?.requirements || []
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Evaluation failed');
+            showToast('🤖 AI Evaluation queued — processing...', 'info');
+            const jobId = data.jobId;
+            let pollCount = 0;
+            const poll = setInterval(async () => {
+                pollCount++;
+                try {
+                    const statusRes = await fetch(`/api/evaluations/status/${jobId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (!statusRes.ok) { clearInterval(poll); setEvaluatingId(null); return; }
+                    const job = await statusRes.json();
+                    if (job.status === 'completed') {
+                        clearInterval(poll);
+                        showToast(`✅ Full Audit complete for Team #${submission.team_number}`, 'success');
+                        fetchEvaluations();
+                        setEvaluatingId(null);
+                    } else if (job.status === 'failed') {
+                        clearInterval(poll);
+                        showToast(`❌ AI failed: ${job.error || 'Unknown error'}`, 'error');
+                        setEvaluatingId(null);
+                    } else if (pollCount > 60) { clearInterval(poll); setEvaluatingId(null); }
+                } catch (e) { clearInterval(poll); setEvaluatingId(null); }
+            }, 2000);
+        } catch (error) {
+            showToast(error.message, 'error');
+            setEvaluatingId(null);
+        }
+    };
 
     const ReportModal = ({ sub, report }) => {
         if (!sub || !report) return null;
@@ -602,7 +658,9 @@ export default function AdminSubmissions() {
                     </div>
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>
-                    🤖 AI evaluation performs a deep technical audit on GitHub source code
+                    🚀 <strong style={{color:'var(--accent-cyan)'}}>Full Audit</strong> = Clone → Install deps → Run code → AI Evaluate (recommended) &nbsp;|&nbsp;
+                    🔨 = Forge structural check only &nbsp;|&nbsp;
+                    🤖 = AI evaluation only (uses pre-cloned or GitHub scan)
                 </p>
             </div>
 
@@ -652,19 +710,35 @@ export default function AdminSubmissions() {
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                                {!evalResult && !isEvaluating && <button className="btn btn-primary btn-sm" onClick={() => handleEvaluate(sub)} title="AI Evaluate">🤖</button>}
-                                                {evalResult && <button className="btn btn-secondary btn-sm" onClick={() => setSelectedReport({ sub, report: evalResult })} title="View Report">📊</button>}
+                                                {/* PRIMARY: Full Audit button — Forge + AI combined (recommended) */}
+                                                {!isEvaluating && (
+                                                    <button
+                                                        className="btn btn-sm"
+                                                        style={{ background: 'linear-gradient(135deg, rgba(108,99,255,0.3), rgba(0,212,255,0.2))', border: '1px solid var(--primary-light)', color: '#fff', fontWeight: 800, fontSize: '0.65rem', letterSpacing: '0.3px', padding: '4px 8px' }}
+                                                        onClick={() => handleFullAudit(sub)}
+                                                        disabled={isForging === sub.id}
+                                                        title="Full Audit: Clone → Install deps → Run code → AI Evaluate (RECOMMENDED)"
+                                                    >
+                                                        {isForging === sub.id ? '⏳' : '🚀 FULL AUDIT'}
+                                                    </button>
+                                                )}
+                                                {/* View report */}
+                                                {evalResult && <button className="btn btn-secondary btn-sm" onClick={() => setSelectedReport({ sub, report: evalResult })} title="View AI Report">📊</button>}
+                                                {/* Forge only (structural check, no AI) */}
                                                 <button
                                                     className="btn btn-sm"
-                                                    style={{ background: 'linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,255,136,0.1))', border: '1px solid var(--accent-cyan)', color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.7rem', letterSpacing: '0.5px' }}
+                                                    style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.65rem' }}
                                                     onClick={() => handleForge(sub)}
                                                     disabled={isForging === sub.id}
-                                                    title="Forge Verify (Clone & Audit)"
+                                                    title="Forge Only: Clone & structural analysis (no AI)"
                                                 >
-                                                    {isForging === sub.id ? '⏳' : '🔨 FORGE'}
+                                                    {isForging === sub.id ? '⏳' : '🔨'}
                                                 </button>
-                                                {evalResult && <button className="btn btn-secondary btn-sm" style={{ opacity: 0.5 }} onClick={() => handleEvaluate(sub)}>🔄</button>}
-                                                <button className="btn btn-danger btn-sm" onClick={() => deleteSubmission(sub.id)}>🗑️</button>
+                                                {/* AI only (re-evaluate / evaluate without re-forge) */}
+                                                {isEvaluating ? <div className="spinner" style={{ width: '20px', height: '20px' }} />
+                                                    : <button className="btn btn-sm" style={{ background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.3)', color: 'var(--primary-light)', fontWeight: 700, fontSize: '0.65rem' }} onClick={() => handleEvaluate(sub)} title={evalResult ? 'Re-run AI Evaluation' : 'AI Evaluate only'}>🤖</button>
+                                                }
+                                                <button className="btn btn-danger btn-sm" onClick={() => deleteSubmission(sub.id)} title="Delete">🗑️</button>
                                             </div>
                                         </td>
                                     </tr>

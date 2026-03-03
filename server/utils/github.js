@@ -138,11 +138,11 @@ export async function fetchGithubRepoContent(githubUrl) {
             githubFetch(`${GITHUB_API}/repos/${owner}/${repo}/contributors`, headers)
         ]);
 
-        // If we can't even get repo metadata, it may be private or not exist
+        // If repoData is null: rate limited, no token, or repo doesn't exist.
+        // Don't abort — try to continue using URL-derived defaults (owner/repo from URL).
+        // If it truly doesn't exist, the tree fetch below will also fail and we return null then.
         if (!repoData) {
-            console.error(`❌ Could not fetch repo metadata for ${owner}/${repo}. It may be private, not exist, or the API rate limit is exceeded.`);
-            // Still attempt to read files directly if we have a token, but return null context
-            return null;
+            console.warn(`⚠️ Could not fetch repo metadata for ${owner}/${repo} — continuing without metadata (rate limit or no token?)`);
         }
 
         const meta = {
@@ -254,6 +254,12 @@ export async function fetchGithubRepoContent(githubUrl) {
                     }
                 }
             }
+        }
+
+        // If we found NOTHING at all — repo doesn't exist or is truly empty
+        if (allItems.length === 0 && fileTree.length === 0 && !repoData) {
+            console.error(`❌ Repository ${owner}/${repo} appears to not exist or is completely inaccessible.`);
+            return null;
         }
 
         // ---- PHASE 2: Sort by priority and read more files ----
