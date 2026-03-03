@@ -277,6 +277,13 @@ export default function AdminSubmissions() {
             details = typeof report.detailed_report === 'string' ? JSON.parse(report.detailed_report) : (report.detailed_report || []);
         } catch (e) { console.error('JSON Parse error', e); }
 
+        // Build full GitHub URL
+        const githubUrl = sub.github_url
+            ? (sub.github_url.startsWith('http') ? sub.github_url : `https://github.com/${sub.github_url}`).replace(/\.git$/, '')
+            : null;
+        // GitHub profile (owner) URL
+        const githubOwner = githubUrl ? githubUrl.split('/').slice(0, 4).join('/') : null;
+
         return (
             <div className="modal-overlay" onClick={() => setSelectedReport(null)}>
                 <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -289,7 +296,13 @@ export default function AdminSubmissions() {
                                     {report.plagiarism_risk !== 'Low' && <span className="badge badge-danger" style={{ fontSize: '0.6rem' }}>🔥 PLAGIARISM: {report.plagiarism_risk}</span>}
                                     {!report.identity_verified && <span className="badge badge-warning" style={{ fontSize: '0.6rem' }}>🆔 IDENTITY MISMATCH</span>}
                                 </h3>
-                                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{sub.phase} • GitHub: {sub.github_url.split('/').pop()}</p>
+                                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    {sub.phase} •{' '}
+                                    {githubUrl
+                                        ? <a href={githubUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'none' }} title="Open GitHub repository">🔗 {sub.github_url.split('/').pop().replace(/\.git$/, '')}</a>
+                                        : `GitHub: ${sub.github_url}`
+                                    }
+                                </p>
                             </div>
                         </div>
                         <button className="btn btn-secondary btn-sm" onClick={() => setSelectedReport(null)}>CLOSE</button>
@@ -322,7 +335,26 @@ export default function AdminSubmissions() {
 
                         <div className="glass-card" style={{ padding: 'var(--space-lg)', marginBottom: 'var(--space-xl)', borderLeft: '4px solid var(--primary)' }}>
                             <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>🤖 AI Summary Feedback</h4>
-                            <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.6 }}>{report.feedback}</p>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '0.85rem', lineHeight: 1.6 }}>{report.feedback}</p>
+                            {/* GitHub Links */}
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                {githubUrl && (
+                                    <a href={githubUrl} target="_blank" rel="noopener noreferrer" style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
+                                        background: 'rgba(0,212,255,0.1)', color: 'var(--accent-cyan)',
+                                        border: '1px solid rgba(0,212,255,0.3)', textDecoration: 'none'
+                                    }}>📁 View Repository</a>
+                                )}
+                                {githubOwner && (
+                                    <a href={githubOwner} target="_blank" rel="noopener noreferrer" style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
+                                        background: 'rgba(108,99,255,0.1)', color: 'var(--primary-light)',
+                                        border: '1px solid rgba(108,99,255,0.3)', textDecoration: 'none'
+                                    }}>👤 View GitHub Profile</a>
+                                )}
+                            </div>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 'var(--space-xl)', alignItems: 'start' }}>
@@ -419,7 +451,16 @@ export default function AdminSubmissions() {
                     <div className="modal-header">
                         <div>
                             <h3 style={{ margin: 0 }}>🔧 Forge Nexus Audit — Team #{sub.team_number}</h3>
-                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{sub.phase} • {sub.team_name || `Team ${sub.team_number}`}</p>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                {sub.phase} •{' '}
+                                {sub.github_url
+                                    ? (() => {
+                                        const url = sub.github_url.startsWith('http') ? sub.github_url : `https://github.com/${sub.github_url}`;
+                                        return <a href={url.replace(/\.git$/, '')} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'none' }}>🔗 {sub.team_name || `Team ${sub.team_number}`}</a>;
+                                    })()
+                                    : (sub.team_name || `Team ${sub.team_number}`)
+                                }
+                            </p>
                         </div>
                         <button className="btn btn-secondary btn-sm" onClick={() => { setForgeSubmission(null); setForgeData(null); setTerminalLogs([]); }}>CLOSE</button>
                     </div>

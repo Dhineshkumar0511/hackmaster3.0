@@ -8,6 +8,27 @@ import { forgeAudit, cleanupForge } from '../utils/forge.js';
 
 const router = express.Router();
 
+// ---- Cerebras API Key Pool (round-robin rotation) ----
+// Reads CEREBRAS_API_KEY, CEREBRAS_API_KEY_1, CEREBRAS_API_KEY_2, CEREBRAS_API_KEY_3, CEREBRAS_API_KEY_4, etc.
+function buildCerebrasKeyPool() {
+    const keys = [];
+    if (process.env.CEREBRAS_API_KEY) keys.push(process.env.CEREBRAS_API_KEY.trim());
+    for (let i = 1; i <= 10; i++) {
+        const k = process.env[`CEREBRAS_API_KEY_${i}`];
+        if (k && k.trim()) keys.push(k.trim());
+    }
+    return [...new Set(keys)]; // deduplicate
+}
+
+let _cerebrasKeyIndex = 0;
+function getNextCerebrasKey() {
+    const pool = buildCerebrasKeyPool();
+    if (pool.length === 0) return null;
+    const key = pool[_cerebrasKeyIndex % pool.length];
+    _cerebrasKeyIndex++;
+    return key;
+}
+
 // GET /api/evaluations
 router.get('/', authMiddleware, async (req, res) => {
     try {
@@ -139,12 +160,15 @@ const evaluationWorker = async (data, job) => {
         const fileSummary = githubData.fileContents?.map(f => `  - ${f.path}`).join('\n') || 'None';
 
         // ---- STEP 3: Call AI ----
-        const apiKey = process.env.CEREBRAS_API_KEY;
+        const cerebrasPool = buildCerebrasKeyPool();
         let evaluation = null;
+        let aiSkipReason = null;
 
-        if (apiKey) {
+        if (cerebrasPool.length > 0) {
+            console.log(`   🔑 Cerebras key pool: ${cerebrasPool.length} key(s) available`);
             evaluation = await callAIEvaluation({
-                apiKey,
+                getKey: getNextCerebrasKey,
+                keyPoolSize: cerebrasPool.length,
                 useCaseTitle,
                 useCaseObjective,
                 domainChallenge,
@@ -152,18 +176,22 @@ const evaluationWorker = async (data, job) => {
                 reqsFormatted,
                 reqsList,
                 githubContext: githubData.fullContext,
-                execOutput,         // ← NEW: execution output from forge
+                execOutput,
                 fileSummary,
                 repoStats: githubData.stats,
                 teamMembers,
                 repoInfo
             });
+            if (!evaluation) aiSkipReason = 'AI call failed (rate limit or API error — all keys exhausted)';
+        } else {
+            aiSkipReason = 'No CEREBRAS_API_KEY configured on server (add to Render env vars)';
+            console.error(`   ❌ ${aiSkipReason}`);
         }
 
         // ---- STEP 4: Fallback ----
         if (!evaluation) {
-            console.log('⚠️ AI evaluation failed, using keyword-based fallback...');
-            evaluation = keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput);
+            console.log(`⚠️ AI evaluation skipped: ${aiSkipReason}. Using keyword-based fallback...`);
+            evaluation = keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput, aiSkipReason);
         }
 
         // ---- STEP 5: Save ----
@@ -204,7 +232,7 @@ router.post('/evaluate', authMiddleware, adminOnly, async (req, res) => {
 /**
  * Call Cerebras AI for deep evaluation
  */
-async function callAIEvaluation({ apiKey, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, execOutput, fileSummary, repoStats, teamMembers, repoInfo }) {
+async function callAIEvaluation({ getKey, keyPoolSize, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, execOutput, fileSummary, repoStats, teamMembers, repoInfo }) {
 
     const teamNames = teamMembers.map(m => m.name || m).join(', ');
 
@@ -285,36 +313,70 @@ ${githubContext}`;
             ? prompt.substring(0, MAX_CONTEXT) + '\n\n[CONTEXT TRUNCATED DUE TO LENGTH — evaluate based on available code above]'
             : prompt;
 
-        const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            signal: AbortSignal.timeout(90000), // 90 second timeout
-            body: JSON.stringify({
-                model: 'llama-3.3-70b',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'You are a strict, precise hackathon judge. You MUST respond with ONLY valid JSON. No markdown. No explanation. No preamble.'
-                    },
-                    {
-                        role: 'user',
-                        content: trimmedContext
-                    }
-                ],
-                response_format: { type: 'json_object' },
-                temperature: 0.1,
-                max_tokens: 4096
-            })
+        const requestBody = JSON.stringify({
+            model: 'llama3.3-70b',
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are a strict, precise hackathon judge. You MUST respond with ONLY valid JSON. No markdown. No explanation. No preamble.'
+                },
+                {
+                    role: 'user',
+                    content: trimmedContext
+                }
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+            max_tokens: 4096
         });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            console.error('❌ AI API Error:', response.status, errText.substring(0, 300));
-            if (response.status === 401) console.error('   → Check CEREBRAS_API_KEY in .env');
-            if (response.status === 429) console.error('   → Rate limited by Cerebras API');
+        // --- Retry loop with key rotation ---
+        const maxAttempts = keyPoolSize || 1;
+        let response = null;
+        let lastError = null;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const apiKey = getKey();
+            if (!apiKey) { console.error('   ❌ No Cerebras API keys available!'); break; }
+            console.log(`   🔑 Cerebras attempt ${attempt + 1}/${maxAttempts} with key ...${apiKey.slice(-6)}`);
+            try {
+                response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    signal: AbortSignal.timeout(90000), // 90 second timeout
+                    body: requestBody
+                });
+                if (response.ok) break; // success → exit retry loop
+                const errText = await response.text();
+                console.error(`❌ AI API Error (attempt ${attempt + 1}): ${response.status} ${errText.substring(0, 200)}`);
+                if (response.status === 429) {
+                    console.warn(`   ⚠️ Rate limited! Rotating to next key...`);
+                    lastError = '429 Rate Limited';
+                    response = null; // force retry
+                    continue;
+                }
+                if (response.status === 401) {
+                    console.warn(`   ⚠️ Invalid API key! Rotating to next key...`);
+                    lastError = '401 Unauthorized';
+                    response = null;
+                    continue;
+                }
+                // Other errors: don't retry
+                console.error(`   → Non-retryable error, giving up.`);
+                return null;
+            } catch (fetchErr) {
+                if (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError') {
+                    console.error(`❌ AI call timed out (attempt ${attempt + 1})`);
+                    return null;
+                }
+                throw fetchErr;
+            }
+        }
+
+        if (!response || !response.ok) {
+            console.error(`❌ AI call failed after all ${maxAttempts} key(s). Last error: ${lastError}`);
             return null;
         }
 
@@ -344,11 +406,7 @@ ${githubContext}`;
         return evaluation;
 
     } catch (err) {
-        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-            console.error('❌ AI call timed out after 90s');
-        } else {
-            console.error('❌ AI call failed:', err.message);
-        }
+        console.error('❌ AI call error:', err.name, err.message);
         return null;
     }
 }
@@ -457,7 +515,7 @@ function sanitizeEvaluation(eval_, reqsList) {
 /**
  * Keyword-based fallback evaluation when AI is unavailable
  */
-function keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput = '') {
+function keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput = '', aiSkipReason = null) {
     const code = ((githubData.fullContext || '') + ' ' + execOutput).toLowerCase();
     const stats = githubData.stats || {};
 
@@ -568,7 +626,7 @@ function keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput =
         plagiarismRisk: 'Low',
         feedback: globalRelevance === 0 && titleKeywords.length > 0
             ? `❌ TOPIC MISMATCH: The code in this repository does not seem to relate to the assigned use case (${useCaseTitle}). AI evaluation was skipped due to lack of relevance.`
-            : `⚠️ KEYWORD-BASED EVALUATION (AI Unavailable). Found ${stats.codeFilesFound || 0} code files. Detected ${requirementsMet}/${reqsList.length} requirements.${execOutput ? ' Code execution output was captured.' : ' No runtime execution performed.'}`,
+            : `⚠️ KEYWORD-BASED EVALUATION (AI Unavailable${aiSkipReason ? ': ' + aiSkipReason : ''}). Found ${stats.codeFilesFound || 0} code files. Detected ${requirementsMet}/${reqsList.length} requirements.${execOutput ? ' Code execution output was captured.' : ' No runtime execution performed.'}`,
         detailedReport,
     };
 }

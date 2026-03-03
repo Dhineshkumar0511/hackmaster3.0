@@ -7,6 +7,38 @@
 
 const GITHUB_API = 'https://api.github.com';
 
+// ---- GitHub Token Pool (round-robin rotation to avoid rate limits) ----
+// Reads GITHUB_TOKEN, GITHUB_TOKEN_1, GITHUB_TOKEN_2, GITHUB_TOKEN_3, etc.
+function buildGithubTokenPool() {
+    const tokens = [];
+    // Primary token
+    if (process.env.GITHUB_TOKEN) tokens.push(process.env.GITHUB_TOKEN.trim());
+    // Numbered tokens
+    for (let i = 1; i <= 10; i++) {
+        const t = process.env[`GITHUB_TOKEN_${i}`];
+        if (t && t.trim()) tokens.push(t.trim());
+    }
+    return [...new Set(tokens)]; // deduplicate
+}
+
+let _tokenIndex = 0;
+function getNextGithubToken() {
+    const pool = buildGithubTokenPool();
+    if (pool.length === 0) return null;
+    const token = pool[_tokenIndex % pool.length];
+    _tokenIndex++;
+    return token;
+}
+
+function buildAuthHeaders(token) {
+    const headers = {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'HackMaster-v3-Deep-Evaluator'
+    };
+    if (token) headers['Authorization'] = `token ${token}`;
+    return headers;
+}
+
 // File extensions grouped by relevance priority
 const CODE_EXTENSIONS = {
     high: ['.py', '.ipynb', '.jsx', '.tsx', '.js', '.ts'],
@@ -69,33 +101,48 @@ function isCodeFile(fileName) {
 }
 
 async function githubFetch(url, headers) {
-    try {
-        const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
-        if (res.status === 401 || res.status === 403) {
-            const remaining = res.headers.get('x-ratelimit-remaining');
-            const resetTime = res.headers.get('x-ratelimit-reset');
-            if (remaining === '0') {
-                const resetDate = resetTime ? new Date(Number(resetTime) * 1000).toLocaleTimeString() : 'unknown';
-                console.warn(`⚠️ GitHub API rate limit reached. Resets at: ${resetDate}`);
+    const pool = buildGithubTokenPool();
+    let attempts = Math.max(1, pool.length); // try each token at most once
+    let currentHeaders = { ...headers };
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            const res = await fetch(url, { headers: currentHeaders, signal: AbortSignal.timeout(15000) });
+
+            if (res.status === 401 || res.status === 403) {
+                const remaining = res.headers.get('x-ratelimit-remaining');
+                const resetTime = res.headers.get('x-ratelimit-reset');
+                const isRateLimit = remaining === '0';
+                if (isRateLimit) {
+                    const resetDate = resetTime ? new Date(Number(resetTime) * 1000).toLocaleTimeString() : 'unknown';
+                    console.warn(`⚠️ GitHub rate limit hit (token ${attempt + 1}/${pool.length}). Resets at: ${resetDate}`);
+                } else {
+                    console.warn(`⚠️ GitHub API auth error (${res.status}) for: ${url}`);
+                }
+                // Try next token in pool
+                if (attempt + 1 < attempts && pool.length > 1) {
+                    const nextToken = pool[(_tokenIndex++) % pool.length];
+                    console.log(`🔄 Rotating to next GitHub token (${attempt + 2}/${pool.length})...`);
+                    currentHeaders = buildAuthHeaders(nextToken);
+                    continue;
+                }
                 return null;
             }
-            // 401 = no token, 403 could be private repo
-            console.warn(`⚠️ GitHub API auth error (${res.status}) for: ${url}`);
+            if (res.status === 404) {
+                console.warn(`⚠️ GitHub API 404 for: ${url}`);
+                return null;
+            }
+            if (!res.ok) {
+                console.warn(`⚠️ GitHub API error ${res.status} for: ${url}`);
+                return null;
+            }
+            return await res.json();
+        } catch (e) {
+            console.error(`GitHub fetch error for ${url}:`, e.message);
             return null;
         }
-        if (res.status === 404) {
-            console.warn(`⚠️ GitHub API 404 for: ${url}`);
-            return null;
-        }
-        if (!res.ok) {
-            console.warn(`⚠️ GitHub API error ${res.status} for: ${url}`);
-            return null;
-        }
-        return await res.json();
-    } catch (e) {
-        console.error(`GitHub fetch error for ${url}:`, e.message);
-        return null;
     }
+    return null;
 }
 
 /**
@@ -124,12 +171,13 @@ export async function fetchGithubRepoContent(githubUrl) {
             return null;
         }
 
-        const headers = {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'HackMaster-v3-Deep-Evaluator'
-        };
-        if (process.env.GITHUB_TOKEN) {
-            headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
+        // Use rotating token pool for GitHub API auth
+        const githubToken = getNextGithubToken();
+        const headers = buildAuthHeaders(githubToken);
+        if (githubToken) {
+            console.log(`🔑 [GitHub Analyzer] Using auth token (${buildGithubTokenPool().length} in pool)`);
+        } else {
+            console.warn(`⚠️ [GitHub Analyzer] No GITHUB_TOKEN set — using unauthenticated (60 req/hr limit!)`);
         }
 
         // ---- PHASE 0: Get Repo Metadata ----
