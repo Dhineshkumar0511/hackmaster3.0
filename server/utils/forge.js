@@ -410,7 +410,34 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
             timeout: 20000,
             windowsHide: true,
             cwd: clonePath,  // Set working dir to repo root for relative path resolution
-            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+            env: {
+                ...process.env,
+                PYTHONUNBUFFERED: '1',
+                // ---- Dummy API keys so student imports don't crash ----
+                // Students use various AI providers — inject placeholders so
+                // `Groq(api_key=os.getenv("GROQ_API_KEY"))` doesn't crash on import
+                GROQ_API_KEY: process.env.GROQ_API_KEY || 'gsk_dummy_forge_key_placeholder',
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-dummy_forge_key_placeholder',
+                GEMINI_API_KEY: process.env.GEMINI_API_KEY || 'AIza_dummy_forge_key_placeholder',
+                GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || 'AIza_dummy_forge_key_placeholder',
+                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || 'sk-ant-dummy_forge_key_placeholder',
+                COHERE_API_KEY: process.env.COHERE_API_KEY || 'dummy_cohere_forge_key',
+                HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY || 'hf_dummy_forge_key_placeholder',
+                HF_TOKEN: process.env.HF_TOKEN || 'hf_dummy_forge_key_placeholder',
+                MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || 'dummy_mistral_forge_key',
+                TOGETHER_API_KEY: process.env.TOGETHER_API_KEY || 'dummy_together_forge_key',
+                REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN || 'dummy_replicate_forge_key',
+                PINECONE_API_KEY: process.env.PINECONE_API_KEY || 'dummy_pinecone_forge_key',
+                WEAVIATE_API_KEY: process.env.WEAVIATE_API_KEY || 'dummy_weaviate_forge_key',
+                CHROMA_API_KEY: process.env.CHROMA_API_KEY || 'dummy_chroma_forge_key',
+                LANGCHAIN_API_KEY: process.env.LANGCHAIN_API_KEY || 'dummy_langchain_forge_key',
+                SUPABASE_KEY: process.env.SUPABASE_KEY || 'dummy_supabase_forge_key',
+                SUPABASE_URL: process.env.SUPABASE_URL || 'https://dummy.supabase.co',
+                FIREBASE_API_KEY: process.env.FIREBASE_API_KEY || 'dummy_firebase_forge_key',
+                SECRET_KEY: process.env.SECRET_KEY || 'dummy_secret_forge_key_hackmaster',
+                API_KEY: process.env.API_KEY || 'dummy_api_forge_key',
+                PORT: '8080',
+            }
         });
 
         const rawOutput = ((stdout || '') + (stderr || '')).trim();
