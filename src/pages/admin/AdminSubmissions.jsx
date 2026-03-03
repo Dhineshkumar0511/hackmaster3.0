@@ -172,7 +172,10 @@ export default function AdminSubmissions() {
 
             setForgeData(data);
             const evalResult = evaluationResults[`sub_${submission.id}`];
-            setOverrideValues({ score: evalResult?.total_score || 80, feedback: 'Verified build and code structure. High technical integrity.' });
+            const execNote = data.execResult?.ran
+                ? `Executed ${data.execResult.mainFile}: ${data.execResult.exitSuccess ? 'ran successfully' : data.execResult.timedOut ? 'server kept running (timeout)' : 'exit with error'}. `
+                : '';
+            setOverrideValues({ score: evalResult?.total_score || 80, feedback: `${execNote}Verified build and code structure. High technical integrity.` });
         } catch (error) {
             setTerminalLogs(prev => [...prev, { type: 'error', text: `❌ ERROR: ${error.message}` }]);
             showToast(error.message, 'error');
@@ -384,8 +387,15 @@ export default function AdminSubmissions() {
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', lineHeight: '1.4' }}>
                                 {Array.isArray(terminalLogs) && terminalLogs.map((log, i) => (
                                     <div key={i} style={{
-                                        color: log.type === 'error' ? '#FF7B72' : log.type === 'success' ? '#3FB950' : log.type === 'cmd' ? '#79C0FF' : '#C9D1D9',
-                                        marginBottom: '4px'
+                                        color: log.type === 'error' ? '#FF7B72'
+                                            : log.type === 'success' ? '#3FB950'
+                                            : log.type === 'cmd' ? '#79C0FF'
+                                            : log.type === 'output' ? '#E6DB74'
+                                            : log.type === 'warning' ? '#FFA657'
+                                            : '#C9D1D9',
+                                        marginBottom: '4px',
+                                        paddingLeft: log.type === 'output' ? '8px' : '0',
+                                        borderLeft: log.type === 'output' ? '2px solid rgba(230,219,116,0.3)' : 'none',
                                     }}>
                                         {log.text}
                                     </div>
@@ -465,6 +475,29 @@ export default function AdminSubmissions() {
                                                 }}>{lang.name} ({lang.count})</span>
                                             ))}
                                         </div>
+                                    </div>
+                                )}
+
+                                {/* Execution Result */}
+                                {forgeData.execResult?.ran && (
+                                    <div style={{ marginBottom: '16px', background: '#0D1117', borderRadius: '6px', border: `1px solid ${forgeData.execResult.exitSuccess ? 'rgba(63,185,80,0.4)' : forgeData.execResult.timedOut ? 'rgba(255,166,87,0.4)' : 'rgba(255,123,114,0.4)'}` }}>
+                                        <div style={{ padding: '8px 12px', borderBottom: '1px solid #21262D', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>{forgeData.execResult.exitSuccess ? '✅' : forgeData.execResult.timedOut ? '⏰' : '⚠️'}</span>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: forgeData.execResult.exitSuccess ? '#3FB950' : forgeData.execResult.timedOut ? '#FFA657' : '#FF7B72' }}>
+                                                CODE EXECUTION — {forgeData.execResult.mainFile}
+                                            </span>
+                                            <span style={{ fontSize: '0.6rem', color: '#8B949E', marginLeft: 'auto' }}>
+                                                {forgeData.execResult.timedOut ? 'TIMEOUT (server running)' : forgeData.execResult.exitSuccess ? 'success' : 'exit error'}
+                                            </span>
+                                        </div>
+                                        <pre style={{ margin: 0, padding: '10px 12px', fontSize: '0.6rem', color: '#E6DB74', fontFamily: 'var(--font-mono)', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                            {forgeData.execResult.output || '(no output)'}
+                                        </pre>
+                                    </div>
+                                )}
+                                {forgeData.execResult && !forgeData.execResult.ran && (
+                                    <div style={{ marginBottom: '12px', padding: '8px 12px', background: 'rgba(255,166,87,0.08)', borderRadius: '6px', border: '1px solid rgba(255,166,87,0.2)', fontSize: '0.65rem', color: '#FFA657' }}>
+                                        ⚠️ No executable entry point detected — manual code review required.
                                     </div>
                                 )}
 

@@ -1,15 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, CheckCircle, Clock, Trash2, User, PlayCircle, Loader2, ChevronDown, ListFilter, Layout, Trello, MoreVertical, AlertCircle } from 'lucide-react';
+import { Plus, CheckCircle, Clock, Trash2, User, PlayCircle, Loader2, ChevronDown, ListFilter, Layout, Trello, MoreVertical, AlertCircle, FileText } from 'lucide-react';
 import { useAppContext } from '../../App';
+import TaskDetailModal from '../../components/TaskDetailModal';
 
 export default function TeamTasks() {
-    const { showToast, user, teams } = useAppContext();
+    const { showToast, user, teams, useCases } = useAppContext();
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [adding, setAdding] = useState(false);
     const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'list'
-    const [newTask, setNewTask] = useState({ title: '', priority: 'medium', assignedTo: '' });
+    const [newTask, setNewTask] = useState({ title: '', description: '', priority: 'medium', assignedTo: '' });
+    const [selectedTask, setSelectedTask] = useState(null);
 
     // Find current team members
     const myTeam = teams.find(t => t.team_number === user?.teamNumber);
@@ -51,7 +53,7 @@ export default function TeamTasks() {
 
             if (res.ok) {
                 showToast('🚀 Task added to roadmap!', 'success');
-                setNewTask({ title: '', priority: 'medium', assignedTo: '' });
+                setNewTask({ title: '', description: '', priority: 'medium', assignedTo: '' });
                 fetchTasks();
             } else {
                 const data = await res.json();
@@ -134,8 +136,9 @@ export default function TeamTasks() {
                         borderLeft: `4px solid ${getPriorityColor(task.priority)}`,
                         background: 'rgba(255,255,255,0.03)',
                         transition: 'all 0.2s ease',
-                        animation: 'fadeIn 0.3s ease'
-                    }}>
+                        animation: 'fadeIn 0.3s ease',
+                        cursor: 'pointer'
+                    }} onClick={() => setSelectedTask(task)}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: '1rem', fontWeight: 700, color: 'white', marginBottom: '8px' }}>{task.title}</div>
@@ -148,14 +151,14 @@ export default function TeamTasks() {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
                                 <button
-                                    onClick={() => deleteTask(task.id)}
+                                    onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }}
                                     onMouseOver={e => e.currentTarget.style.color = '#FF006E'}
                                     onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}
                                 >
                                     <Trash2 size={14} />
                                 </button>
-                                <div style={{ position: 'relative' }}>
+                                <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
                                     <MoreVertical size={14} color="rgba(255,255,255,0.2)" />
                                     <select
                                         value={task.status}
@@ -216,7 +219,7 @@ export default function TeamTasks() {
                             {tasks.map(task => {
                                 const status = getStatusStyle(task.status);
                                 return (
-                                    <tr key={task.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s' }}>
+                                    <tr key={task.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => setSelectedTask(task)}>
                                         <td style={{ padding: '18px 25px' }}><input type="checkbox" /></td>
                                         <td style={{ padding: '18px 15px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -244,7 +247,7 @@ export default function TeamTasks() {
                                             </div>
                                         </td>
                                         <td style={{ padding: '18px 15px' }}>
-                                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: status.bg, color: status.color, borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, border: `1px solid ${status.color}22`, cursor: 'pointer' }}>
+                                            <div onClick={e => e.stopPropagation()} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: status.bg, color: status.color, borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, border: `1px solid ${status.color}22`, cursor: 'pointer' }}>
                                                 {status.text}
                                                 <ChevronDown size={14} style={{ opacity: 0.5 }} />
                                                 <select
@@ -259,7 +262,7 @@ export default function TeamTasks() {
                                             </div>
                                         </td>
                                         <td style={{ padding: '18px 25px' }}>
-                                            <button onClick={() => deleteTask(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }} onMouseOver={e => e.currentTarget.style.color = '#FF006E'} onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}><Trash2 size={16} /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }} onMouseOver={e => e.currentTarget.style.color = '#FF006E'} onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}><Trash2 size={16} /></button>
                                         </td>
                                     </tr>
                                 );
@@ -338,12 +341,13 @@ export default function TeamTasks() {
 
             {/* Quick Task Entry */}
             <div className="glass-card" style={{ padding: '25px', marginBottom: 'var(--space-2xl)', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
-                <form onSubmit={addTask} style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-                    <div style={{ position: 'relative', flex: 1, minWidth: '300px' }}>
+                <form onSubmit={addTask} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* Row 1: Title */}
+                    <div style={{ position: 'relative' }}>
                         <input
                             className="form-input"
-                            style={{ height: '56px', paddingLeft: '50px', fontSize: '1rem' }}
-                            placeholder="Add a new milestone or task..."
+                            style={{ height: '56px', paddingLeft: '50px', fontSize: '1rem', width: '100%' }}
+                            placeholder="Task title — e.g. Build login page, Create API endpoint..."
                             value={newTask.title}
                             onChange={e => setNewTask({ ...newTask, title: e.target.value })}
                             required
@@ -351,33 +355,48 @@ export default function TeamTasks() {
                         <Layout style={{ position: 'absolute', left: '18px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={20} />
                     </div>
 
-                    <div style={{ position: 'relative', width: '220px' }}>
-                        <User style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={18} />
-                        <select
+                    {/* Row 2: Description */}
+                    <div style={{ position: 'relative' }}>
+                        <textarea
                             className="form-input"
-                            style={{ height: '56px', paddingLeft: '45px', fontWeight: 600 }}
-                            value={newTask.assignedTo}
-                            onChange={e => setNewTask({ ...newTask, assignedTo: e.target.value })}
-                        >
-                            <option value="">Assign Member</option>
-                            {teamMembers.map((m, i) => <option key={i} value={m.name}>{m.name}</option>)}
-                        </select>
+                            style={{ width: '100%', minHeight: '100px', paddingLeft: '50px', paddingTop: '16px', fontSize: '0.9rem', resize: 'vertical', lineHeight: 1.6 }}
+                            placeholder="Describe what needs to be done — acceptance criteria, technical notes, references..."
+                            value={newTask.description}
+                            onChange={e => setNewTask({ ...newTask, description: e.target.value })}
+                        />
+                        <FileText style={{ position: 'absolute', left: '18px', top: '18px', opacity: 0.3 }} size={18} />
                     </div>
 
-                    <select
-                        className="form-input"
-                        style={{ height: '56px', width: '180px', fontWeight: 600 }}
-                        value={newTask.priority}
-                        onChange={e => setNewTask({ ...newTask, priority: e.target.value })}
-                    >
-                        <option value="low">Low Priority</option>
-                        <option value="medium">Medium Priority</option>
-                        <option value="high">Critical</option>
-                    </select>
+                    {/* Row 3: Assignee + Priority + Deploy */}
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                            <User style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} size={18} />
+                            <select
+                                className="form-input"
+                                style={{ height: '52px', paddingLeft: '45px', fontWeight: 600, width: '100%' }}
+                                value={newTask.assignedTo}
+                                onChange={e => setNewTask({ ...newTask, assignedTo: e.target.value })}
+                            >
+                                <option value="">Assign Member</option>
+                                {teamMembers.map((m, i) => <option key={i} value={m.name}>{m.name}</option>)}
+                            </select>
+                        </div>
 
-                    <button type="submit" className="btn btn-primary" disabled={adding} style={{ height: '56px', padding: '0 30px', fontWeight: 900 }}>
-                        {adding ? <Loader2 className="animate-spin" /> : <><Plus size={20} /> Deploy Task</>}
-                    </button>
+                        <select
+                            className="form-input"
+                            style={{ height: '52px', width: '180px', fontWeight: 600 }}
+                            value={newTask.priority}
+                            onChange={e => setNewTask({ ...newTask, priority: e.target.value })}
+                        >
+                            <option value="low">🟢 Low Priority</option>
+                            <option value="medium">🟡 Medium Priority</option>
+                            <option value="high">🔴 Critical</option>
+                        </select>
+
+                        <button type="submit" className="btn btn-primary" disabled={adding} style={{ height: '52px', padding: '0 30px', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                            {adding ? <Loader2 className="animate-spin" /> : <><Plus size={20} /> Deploy Task</>}
+                        </button>
+                    </div>
                 </form>
             </div>
 
@@ -394,6 +413,10 @@ export default function TeamTasks() {
                 </div>
             ) : (
                 <TaskListView />
+            )}
+
+            {selectedTask && (
+                <TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} teams={teams} useCases={useCases} onUpdate={() => { fetchTasks(); }} canEdit={true} />
             )}
         </div>
     );

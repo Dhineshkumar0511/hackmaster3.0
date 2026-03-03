@@ -2,12 +2,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext } from '../../App';
 import { Loader2, CheckCircle, Clock, Trash2, PlayCircle, Filter, Calendar, AlertCircle, ChevronDown, Trello, ListFilter, Layout } from 'lucide-react';
+import TaskDetailModal from '../../components/TaskDetailModal';
 
 export default function AdminTasks() {
-    const { selectedBatch, setSelectedBatch, teams, showToast } = useAppContext();
+    const { selectedBatch, setSelectedBatch, teams, showToast, useCases } = useAppContext();
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTeam, setSelectedTeam] = useState('all');
+    const [selectedTask, setSelectedTask] = useState(null);
 
     const [viewMode, setViewMode] = useState('board'); // 'board' or 'list'
 
@@ -107,8 +109,9 @@ export default function AdminTasks() {
                             animation: 'fadeIn 0.4s ease-out',
                             borderTop: '1px solid rgba(255,255,255,0.05)',
                             borderRight: '1px solid rgba(255,255,255,0.05)',
-                            borderBottom: '1px solid rgba(255,255,255,0.05)'
-                        }}>
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            cursor: 'pointer'
+                        }} onClick={() => setSelectedTask(task)}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
                                 <div style={{ flex: 1 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
@@ -126,7 +129,7 @@ export default function AdminTasks() {
                                     <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'rgba(255,255,255,0.95)', lineHeight: 1.4, letterSpacing: '-0.3px' }}>{task.title}</div>
                                 </div>
                                 <button
-                                    onClick={() => deleteTask(task.id)}
+                                    onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
                                     style={{ background: 'rgba(255,255,255,0.05)', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.2)', padding: '6px', borderRadius: '8px', marginLeft: '10px' }}
                                     onMouseOver={e => { e.currentTarget.style.color = '#FF006E'; e.currentTarget.style.background = 'rgba(255,0,110,0.1)'; }}
                                     onMouseOut={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.2)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
@@ -217,7 +220,7 @@ export default function AdminTasks() {
                                         const team = teams.find(t => t.id === task.team_id);
                                         const mentor = team?.mentor || {};
                                         return (
-                                            <tr key={task.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s' }}>
+                                            <tr key={task.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => setSelectedTask(task)}>
                                                 <td style={{ padding: '18px 25px' }}><input type="checkbox" /></td>
                                                 <td style={{ padding: '18px 15px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -259,7 +262,7 @@ export default function AdminTasks() {
                                                     </div>
                                                 </td>
                                                 <td style={{ padding: '18px 25px' }}>
-                                                    <button onClick={() => deleteTask(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }} onMouseOver={e => e.currentTarget.style.color = '#FF006E'} onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}><Trash2 size={16} /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.1)' }} onMouseOver={e => e.currentTarget.style.color = '#FF006E'} onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.1)'}><Trash2 size={16} /></button>
                                                 </td>
                                             </tr>
                                         );
@@ -412,6 +415,10 @@ export default function AdminTasks() {
                 </div>
             ) : (
                 <TaskListView />
+            )}
+
+            {selectedTask && (
+                <TaskDetailModal task={selectedTask} onClose={() => setSelectedTask(null)} teams={teams} useCases={useCases} onUpdate={() => { fetchAllTasks(); }} />
             )}
         </div>
     );

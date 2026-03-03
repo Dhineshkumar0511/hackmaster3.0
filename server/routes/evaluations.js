@@ -4,6 +4,7 @@ import pool from '../db.js';
 import { authMiddleware, adminOnly } from '../middleware/auth.js';
 import { evaluationQueue } from '../utils/queue.js';
 import { fetchGithubRepoContent } from '../utils/github.js';
+import { forgeAudit, cleanupForge } from '../utils/forge.js';
 
 const router = express.Router();
 
@@ -101,11 +102,35 @@ const evaluationWorker = async (data, job) => {
             console.error('❌ GitHub scan returned no usable code');
             const evaluation = {
                 codeQuality: 0, reqSatisfaction: 0, innovation: 0, totalScore: 0, requirementsMet: 0,
-                feedback: '❌ EVALUATION FAILED: Could not access or read the GitHub repository.',
+                feedback: `❌ EVALUATION FAILED: Could not access or read the GitHub repository at ${finalUrl}. Make sure the repository is PUBLIC and the URL is correct. If this is new, GitHub API rate limiting may also be the cause — try again in a few minutes.`,
                 detailedReport: [],
+                identityVerified: true,
             };
             await saveEvaluation(submissionId, evaluation, allRequirements || [], githubData?.fileTree || []);
             return evaluation;
+        }
+
+        // ---- STEP 1b: Run actual code via Forge ----
+        let execOutput = '';
+        let forgeLogs = [];
+        const forgeId = `eval_${submissionId}_${Date.now()}`;
+        try {
+            console.log(`   🔨 Running Forge code execution for submission ${submissionId}...`);
+            const forgeResult = await forgeAudit(finalUrl, forgeId);
+            if (forgeResult.success) {
+                forgeLogs = forgeResult.buildLogs || [];
+                if (forgeResult.execResult?.ran) {
+                    const exec = forgeResult.execResult;
+                    execOutput = `\n\n## CODE EXECUTION RESULT\nEntry Point: ${exec.mainFile}\nExit Status: ${exec.exitSuccess ? 'Success' : exec.timedOut ? 'Timeout (server/app kept running)' : 'Error'}\n\nExecution Output:\n\`\`\`\n${exec.output || '(no output)'}\n\`\`\``;
+                    console.log(`   ✅ Forge executed ${exec.mainFile}: ${exec.output?.substring(0, 100)}...`);
+                } else {
+                    console.log(`   ⚠️ Forge execution skipped: ${forgeResult.execResult?.runLogs?.[0]?.text || 'no entry point'}`);
+                }
+            }
+            // Clean up after execution
+            try { await cleanupForge(forgeId); } catch (_) {}
+        } catch (forgeErr) {
+            console.warn(`   ⚠️ Forge execution failed (non-fatal): ${forgeErr.message}`);
         }
 
         // ---- STEP 2: Build context ----
@@ -127,6 +152,7 @@ const evaluationWorker = async (data, job) => {
                 reqsFormatted,
                 reqsList,
                 githubContext: githubData.fullContext,
+                execOutput,         // ← NEW: execution output from forge
                 fileSummary,
                 repoStats: githubData.stats,
                 teamMembers,
@@ -137,11 +163,11 @@ const evaluationWorker = async (data, job) => {
         // ---- STEP 4: Fallback ----
         if (!evaluation) {
             console.log('⚠️ AI evaluation failed, using keyword-based fallback...');
-            evaluation = keywordBasedEvaluation(githubData, reqsList, useCaseTitle);
+            evaluation = keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput);
         }
 
         // ---- STEP 5: Save ----
-        await saveEvaluation(submissionId, evaluation, reqsList, githubData.fileTree);
+        await saveEvaluation(submissionId, evaluation, reqsList, githubData.fileTree, forgeLogs);
         return evaluation;
 
     } catch (err) {
@@ -178,78 +204,71 @@ router.post('/evaluate', authMiddleware, adminOnly, async (req, res) => {
 /**
  * Call Cerebras AI for deep evaluation
  */
-/**
- * Call Cerebras AI for deep evaluation
- */
-async function callAIEvaluation({ apiKey, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, fileSummary, repoStats, teamMembers, repoInfo }) {
+async function callAIEvaluation({ apiKey, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, execOutput, fileSummary, repoStats, teamMembers, repoInfo }) {
 
-    const teamNames = teamMembers.map(m => m.name).join(', ');
-    const contributors = (repoInfo.contributors || []).join(', ');
+    const teamNames = teamMembers.map(m => m.name || m).join(', ');
 
     const prompt = `You are a SENIOR TECHNICAL ARCHITECT and HACKATHON JUDGE performing a DEEP-LEVEL CODE AUDIT.
 
-## PLAGIARISM & IDENTITY CHECK
-You must verify if this work belongs to the team:
-- **Team Name:** ${repoInfo.teamName || 'Unknown'}
-- **Registered Members:** ${teamNames}
-- **GitHub Repo Owner:** ${repoInfo.owner}
-- **GitHub Contributors:** ${contributors}
-- **Repo Created At:** ${repoInfo.createdAt}
+## ASSIGNED USE CASE
+- **Use Case Title:** ${useCaseTitle}
+${useCaseObjective ? `- **Objective:** ${useCaseObjective}` : ''}
+${domainChallenge ? `- **Domain Challenge:** ${domainChallenge}` : ''}
+- **Phase:** ${phase}
 
-**IDENTITY RULES (ANTI-PLAGIARISM):**
-1. If the repo was created MORE than 1 month before the hackathon, flag it as "REUSED OLD PROJECT" unless it's a known framework.
-2. If NONE of the team members match the GitHub contributors login/names, and there is no mention of the team in the README, deduction of 10 points is mandatory.
-3. If you find STOLEN CODE from another public repo without attribution, score is 0.
+## CRITICAL: TOPIC ALIGNMENT CHECK
+You MUST verify if the repository's project matches the assigned use case above.
+**STRICT RULE:** If the code is for a COMPLETELY DIFFERENT topic (not related at all), give Total Score 0-5 and state "TOPIC MISMATCH".
 
-## YOUR CRITICAL MISSION: TOPIC ALIGNMENT
-Before scoring code quality, you MUST verify if the repository's project matches the assigned Use Case.
-- **Assigned Use Case:** ${useCaseTitle}
-- ${useCaseObjective ? `**Objective:** ${useCaseObjective}` : ''}
-
-**STRICT RULE:** If the repository is for a COMPLETELY DIFFERENT topic, you MUST give a **Total Score of 0-5** and state "TOPIC MISMATCH" in the feedback.
-
-## THE CHALLENGE DETAILS
-${domainChallenge ? `**Domain Challenge:** ${domainChallenge}` : ''}
-**Phase:** ${phase}
-
-## REQUIREMENTS TO VERIFY
+## REQUIREMENTS TO VERIFY (Evaluate ALL ${reqsList.length} requirements)
 ${reqsFormatted}
 
 ## REPOSITORY METRICS
 - Files Read: ${repoStats.filesAnalyzed}
 - Total Items: ${repoStats.totalFilesInRepo}
-- Language Map: ${JSON.stringify(repoStats.filesByType)}
+- Languages Found: ${JSON.stringify(repoStats.filesByType || {})}
 
-## ANALYSIS RULES (STRICT ENFORCEMENT)
-1. **Relevance & Logical Integrity (60% of Score)**:
-   - Does the code actually solve the assigned ${useCaseTitle} problem?
-   - Look for CUSTOM logic. If you only see boilerplate, score is 0-20.
-2. **Edge-Case Handling & Polish (20% of Score)**:
-   - Are there try-catch blocks? Input validation?
-3. **Scalability & Security (20% of Score)**:
-   - Any leaked secrets? Can this handle load?
+## KEY FILES ANALYZED
+${fileSummary}
+${execOutput ? execOutput : ''}
+
+## EVALUATION CRITERIA (STRICT):
+1. **Requirement Satisfaction (50% weight)**: Does code implement each requirement? Look for actual implementation, not just keywords.
+2. **Code Quality (25% weight)**: Structure, error handling, modularity. 
+3. **Innovation (25% weight)**: Novel approach, good UX, extra features, production-readiness.
 
 ### SCORING SCALE:
-- 95-100: ELITE. 75-94: ADVANCED. 50-74: INTERMEDIATE. 25-49: NOVICE. 0-5: MISMATCH/EMPTY.
+- 90-100: Elite — fully implemented, polished, production-quality
+- 70-89: Advanced — well implemented with minor gaps
+- 50-69: Intermediate — partially implemented
+- 25-49: Novice — attempted but incomplete
+- 0-10: Not implemented / wrong topic
 
-## RESPOND WITH VALID JSON ONLY:
+### REQUIREMENT EVALUATION:
+For EACH requirement, you MUST:
+1. Search the code for actual implementation evidence (function names, logic, data structures)
+2. Check if it's actually WORKING code, not just a comment or placeholder
+3. Give a score 0-100 and specific file evidence
+${execOutput ? `4. Verify if the EXECUTION OUTPUT confirms the requirement works at runtime` : ''}
+
+## RESPOND WITH VALID JSON ONLY — NO MARKDOWN, NO EXPLANATION:
 {
   "codeQuality": <0-100>,
   "reqSatisfaction": <0-100>,
   "innovation": <0-100>,
   "totalScore": <0-100>,
-  "requirementsMet": <count of requirements scored >= 75>,
+  "requirementsMet": <count of requirements scoring >= 70>,
   "plagiarismRisk": "Low|Medium|High",
-  "identityVerified": <true|false>,
-  "feedback": "<4-6 sentence analytical report. Mention file names. Check identity.>",
+  "identityVerified": true,
+  "feedback": "<4-6 sentence technical analysis. Mention specific file names. Describe what works and what's missing.>",
   "detailedReport": [
     {
-      "req": "R1: <text>",
-      "status": "Elite|Met|Partial|Not Met",
+      "req": "R1: <full requirement text>",
+      "status": "Met|Partial|Not Met",
       "score": <0-100>,
-      "explanation": "<evidence found in which files?>",
-      "filesFound": ["<list>"],
-      "mistakes": ["<issues>"]
+      "explanation": "<what specific code evidence was found, which files, which functions?>",
+      "filesFound": ["<file1>", "<file2>"],
+      "mistakes": ["<specific issue 1>", "<specific issue 2>"]
     }
   ]
 }
@@ -260,32 +279,42 @@ ${githubContext}`;
     console.log(`   📤 Sending to AI (context: ${(githubContext.length / 1024).toFixed(1)}KB)...`);
 
     try {
+        // Trim context if too large to avoid token limits (Cerebras has ~8K output token limit)
+        const MAX_CONTEXT = 60000;
+        const trimmedContext = prompt.length > MAX_CONTEXT
+            ? prompt.substring(0, MAX_CONTEXT) + '\n\n[CONTEXT TRUNCATED DUE TO LENGTH — evaluate based on available code above]'
+            : prompt;
+
         const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json'
             },
+            signal: AbortSignal.timeout(90000), // 90 second timeout
             body: JSON.stringify({
                 model: 'llama-3.3-70b',
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are a strict but fair hackathon judge. Respond with valid JSON only.'
+                        content: 'You are a strict, precise hackathon judge. You MUST respond with ONLY valid JSON. No markdown. No explanation. No preamble.'
                     },
                     {
                         role: 'user',
-                        content: prompt
+                        content: trimmedContext
                     }
                 ],
                 response_format: { type: 'json_object' },
-                temperature: 0.2
+                temperature: 0.1,
+                max_tokens: 4096
             })
         });
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error('❌ AI API Error:', response.status, errText);
+            console.error('❌ AI API Error:', response.status, errText.substring(0, 300));
+            if (response.status === 401) console.error('   → Check CEREBRAS_API_KEY in .env');
+            if (response.status === 429) console.error('   → Rate limited by Cerebras API');
             return null;
         }
 
@@ -303,7 +332,7 @@ ${githubContext}`;
         let evaluation = parseAIResponse(content);
 
         if (!evaluation) {
-            console.error('❌ Failed to parse AI response');
+            console.error('❌ Failed to parse AI response:', content.substring(0, 200));
             return null;
         }
 
@@ -315,11 +344,14 @@ ${githubContext}`;
         return evaluation;
 
     } catch (err) {
-        console.error('❌ AI call failed:', err.message);
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+            console.error('❌ AI call timed out after 90s');
+        } else {
+            console.error('❌ AI call failed:', err.message);
+        }
         return null;
     }
 }
-
 /**
  * Parse AI response with multiple fallback strategies
  */
@@ -383,7 +415,7 @@ function sanitizeEvaluation(eval_, reqsList) {
     if (Array.isArray(eval_.detailedReport)) {
         detailedReport = eval_.detailedReport.map((r, i) => ({
             req: r.req || `R${i + 1}: ${reqsList[i] || 'Requirement'}`,
-            status: ['Met', 'Partial', 'Not Met'].includes(r.status) ? r.status : 'Not Met',
+            status: ['Elite', 'Met', 'Partial', 'Not Met'].includes(r.status) ? (r.status === 'Elite' ? 'Met' : r.status) : 'Not Met',
             score: clamp(r.score, 0, 100),
             explanation: String(r.explanation || 'No explanation provided'),
             filesFound: Array.isArray(r.filesFound) ? r.filesFound : [],
@@ -416,16 +448,17 @@ function sanitizeEvaluation(eval_, reqsList) {
         feedback: String(eval_.feedback || 'Evaluation completed.'),
         detailedReport,
         plagiarismRisk: String(eval_.plagiarismRisk || 'Low'),
-        identityVerified: Boolean(eval_.identityVerified !== false),
+        // identityVerified defaults to TRUE — only mark false if AI explicitly provides evidence
+        // GitHub usernames rarely match real names, so we don't use strict matching
+        identityVerified: eval_.identityVerified === false ? false : true,
     };
 }
 
 /**
  * Keyword-based fallback evaluation when AI is unavailable
- * This is NOT a replacement for AI — it gives rough estimates based on code analysis
  */
-function keywordBasedEvaluation(githubData, reqsList, useCaseTitle) {
-    const code = (githubData.fullContext || '').toLowerCase();
+function keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput = '') {
+    const code = ((githubData.fullContext || '') + ' ' + execOutput).toLowerCase();
     const stats = githubData.stats || {};
 
     // If no code at all
@@ -531,9 +564,11 @@ function keywordBasedEvaluation(githubData, reqsList, useCaseTitle) {
         innovation,
         totalScore,
         requirementsMet,
+        identityVerified: true,
+        plagiarismRisk: 'Low',
         feedback: globalRelevance === 0 && titleKeywords.length > 0
             ? `❌ TOPIC MISMATCH: The code in this repository does not seem to relate to the assigned use case (${useCaseTitle}). AI evaluation was skipped due to lack of relevance.`
-            : `⚠️ KEYWORD-BASED EVALUATION (AI Unavailable). Found ${stats.codeFilesFound || 0} code files. Detected ${requirementsMet}/${reqsList.length} requirements.`,
+            : `⚠️ KEYWORD-BASED EVALUATION (AI Unavailable). Found ${stats.codeFilesFound || 0} code files. Detected ${requirementsMet}/${reqsList.length} requirements.${execOutput ? ' Code execution output was captured.' : ' No runtime execution performed.'}`,
         detailedReport,
     };
 }

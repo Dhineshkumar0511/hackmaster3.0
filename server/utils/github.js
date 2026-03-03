@@ -70,15 +70,27 @@ function isCodeFile(fileName) {
 
 async function githubFetch(url, headers) {
     try {
-        const res = await fetch(url, { headers });
-        if (res.status === 403) {
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+        if (res.status === 401 || res.status === 403) {
             const remaining = res.headers.get('x-ratelimit-remaining');
+            const resetTime = res.headers.get('x-ratelimit-reset');
             if (remaining === '0') {
-                console.warn('⚠️ GitHub API rate limit reached');
+                const resetDate = resetTime ? new Date(Number(resetTime) * 1000).toLocaleTimeString() : 'unknown';
+                console.warn(`⚠️ GitHub API rate limit reached. Resets at: ${resetDate}`);
                 return null;
             }
+            // 401 = no token, 403 could be private repo
+            console.warn(`⚠️ GitHub API auth error (${res.status}) for: ${url}`);
+            return null;
         }
-        if (!res.ok) return null;
+        if (res.status === 404) {
+            console.warn(`⚠️ GitHub API 404 for: ${url}`);
+            return null;
+        }
+        if (!res.ok) {
+            console.warn(`⚠️ GitHub API error ${res.status} for: ${url}`);
+            return null;
+        }
         return await res.json();
     } catch (e) {
         console.error(`GitHub fetch error for ${url}:`, e.message);
@@ -120,26 +132,44 @@ export async function fetchGithubRepoContent(githubUrl) {
             headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
         }
 
-        // ---- PHASE 0: Get Repo Metadata (Identity Verification) ----
+        // ---- PHASE 0: Get Repo Metadata ----
         const [repoData, contributorsData] = await Promise.all([
             githubFetch(`${GITHUB_API}/repos/${owner}/${repo}`, headers),
             githubFetch(`${GITHUB_API}/repos/${owner}/${repo}/contributors`, headers)
         ]);
 
+        // If we can't even get repo metadata, it may be private or not exist
+        if (!repoData) {
+            console.error(`❌ Could not fetch repo metadata for ${owner}/${repo}. It may be private, not exist, or the API rate limit is exceeded.`);
+            // Still attempt to read files directly if we have a token, but return null context
+            return null;
+        }
+
         const meta = {
             owner: repoData?.owner?.login || owner,
             createdAt: repoData?.created_at || 'unknown',
             updatedAt: repoData?.updated_at || 'unknown',
+            isPrivate: repoData?.private || false,
+            defaultBranch: repoData?.default_branch || 'main',
             contributors: Array.isArray(contributorsData) ? contributorsData.map(c => c.login) : [],
             description: repoData?.description || ''
         };
+        const defaultBranch = meta.defaultBranch;
 
         // ---- PHASE 1: Get full repo tree in ONE API call ----
-        // This is much more efficient than recursive directory listing
-        const treeData = await githubFetch(
-            `${GITHUB_API}/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
-            headers
-        );
+        // Try multiple branch references in case HEAD is not resolved
+        const branchRefs = [defaultBranch, 'HEAD', 'main', 'master'];
+        let treeData = null;
+        for (const ref of branchRefs) {
+            treeData = await githubFetch(
+                `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`,
+                headers
+            );
+            if (treeData && treeData.tree) {
+                console.log(`✅ [GitHub Analyzer] Tree fetched using ref: ${ref}`);
+                break;
+            }
+        }
 
         let allItems = [];
         let fileTree = [];
@@ -169,7 +199,7 @@ export async function fetchGithubRepoContent(githubUrl) {
                             path: item.path,
                             name: fileName,
                             size: item.size,
-                            download_url: `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${item.path}`,
+                            download_url: `https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/${item.path}`,
                             priority: getFilePriority(item.path, fileName),
                         });
                     }
@@ -246,7 +276,17 @@ export async function fetchGithubRepoContent(githubUrl) {
             if (totalChars >= MAX_TOTAL_CHARS) break;
 
             try {
-                const res = await fetch(file.download_url);
+                let res = await fetch(file.download_url, { 
+                    headers: { 'User-Agent': 'HackMaster-v3-Deep-Evaluator' },
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (!res.ok && process.env.GITHUB_TOKEN) {
+                    // Retry with auth header for private/rate-limited content
+                    res = await fetch(file.download_url, {
+                        headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}`, 'User-Agent': 'HackMaster-v3-Deep-Evaluator' },
+                        signal: AbortSignal.timeout(10000)
+                    });
+                }
                 if (!res.ok) continue;
 
                 let text = await res.text();

@@ -114,6 +114,7 @@ export async function initDb() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_id INT NOT NULL,
       title VARCHAR(255) NOT NULL,
+      description TEXT,
       status VARCHAR(50) DEFAULT 'todo',
       assigned_to VARCHAR(255),
       priority VARCHAR(20) DEFAULT 'medium',
@@ -121,6 +122,17 @@ export async function initDb() {
       FOREIGN KEY (team_id) REFERENCES teams(id)
     )
   `);
+
+  // Ensure description column exists in team_tasks (migration for existing DBs)
+  try {
+    const [taskCols] = await pool.execute('DESCRIBE team_tasks');
+    if (!taskCols.some(c => c.Field === 'description')) {
+      console.log('⚡ Adding `description` column to team_tasks...');
+      await pool.execute('ALTER TABLE team_tasks ADD COLUMN description TEXT AFTER title');
+    }
+  } catch (err) {
+    console.warn('⚠️ team_tasks description column sync warning:', err.message);
+  }
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS support_requests (

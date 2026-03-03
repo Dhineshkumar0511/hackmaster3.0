@@ -248,11 +248,19 @@ export async function forgeAudit(githubUrl, submissionId) {
             }
         } catch (_) { /* build check is optional */ }
 
+        // ---- STEP: Execute main file and capture output ----
+        const execResult = await forgeExecuteMain(clonePath, stats);
+        if (execResult.runLogs?.length > 0) {
+            buildLogs.push({ type: 'info', text: '─── Code Execution ───' });
+            buildLogs.push(...execResult.runLogs);
+        }
+
         return {
             success: true,
             clonePath,
             stats,
             buildLogs,
+            execResult,
             message: `✅ Forge Build Verification: Found ${stats.totalFiles} files. Project: ${stats.projectType.join(' + ')}. ${stats.frameworks.length > 0 ? 'Frameworks: ' + stats.frameworks.join(', ') : ''}`
         };
 
@@ -269,4 +277,124 @@ export async function forgeAudit(githubUrl, submissionId) {
 export async function cleanupForge(submissionId) {
     const clonePath = path.join(FORGE_BASE_DIR, `sub_${submissionId}`);
     return forceRemoveDir(clonePath);
+}
+
+/**
+ * 🚀 FORGE EXECUTE: Find and run the main entry point of the project
+ * Captures output to verify requirements and detect runtime behavior.
+ */
+async function forgeExecuteMain(clonePath, stats) {
+    const runLogs = [];
+    let mainFile = null;
+    let runCommand = null;
+    let language = null;
+
+    // ---- Detect entry point from README if available ----
+    let readmeHint = '';
+    try {
+        const readmeContent = await fs.readFile(path.join(clonePath, 'README.md'), 'utf-8');
+        // Look for run commands in README
+        const runMatch = readmeContent.match(/(?:run|start|execute)[:\s]+[`'"](python[\s\S]{0,80}|node[\s\S]{0,80}|npm[\s\S]{0,80})[`'"]/i);
+        if (runMatch) readmeHint = runMatch[1].trim();
+    } catch (_) {}
+
+    // ---- Python project ----
+    if (stats.hasRequirementsTxt || stats.hasML) {
+        language = 'python';
+        const pythonCandidates = ['main.py', 'app.py', 'run.py', 'server.py', 'api.py', 'predict.py', 'inference.py', 'demo.py'];
+        for (const candidate of pythonCandidates) {
+            try {
+                await fs.access(path.join(clonePath, candidate));
+                mainFile = candidate;
+                break;
+            } catch (_) {}
+        }
+
+        // Also scan sub-folders if not found at root
+        if (!mainFile) {
+            try {
+                const allFiles = await fs.readdir(clonePath, { recursive: true });
+                const pyMain = allFiles.find(f => {
+                    const base = path.basename(f).toLowerCase();
+                    return (base === 'main.py' || base === 'app.py') && !f.includes('node_modules') && !f.includes('.git');
+                });
+                if (pyMain) mainFile = pyMain;
+            } catch (_) {}
+        }
+
+        if (mainFile) {
+            runCommand = `python "${path.join(clonePath, mainFile)}"`;
+        }
+    }
+
+    // ---- Node.js project ----
+    if (!runCommand && stats.hasPackageJson) {
+        language = 'node';
+        let pkgData = null;
+        try {
+            pkgData = JSON.parse(await fs.readFile(path.join(clonePath, 'package.json'), 'utf-8'));
+        } catch (_) {}
+
+        const startScript = pkgData?.scripts?.start;
+        const mainEntry = pkgData?.main;
+
+        if (startScript && !startScript.includes('vite') && !startScript.includes('webpack') && !startScript.includes('react-scripts')) {
+            // Start script exists and it's not a dev server
+            mainFile = mainEntry || 'index.js';
+            runCommand = `node "${path.join(clonePath, mainEntry || 'index.js')}"`;
+        } else {
+            // Try common entry points
+            for (const candidate of ['index.js', 'server.js', 'app.js', 'main.js']) {
+                try {
+                    await fs.access(path.join(clonePath, candidate));
+                    mainFile = candidate;
+                    runCommand = `node "${path.join(clonePath, candidate)}"`;
+                    break;
+                } catch (_) {}
+            }
+        }
+    }
+
+    if (!runCommand) {
+        runLogs.push({ type: 'warning', text: '⚠️ No executable entry point detected (no main.py / app.py / index.js found at root).' });
+        return { ran: false, mainFile: null, output: '', exitSuccess: false, runLogs };
+    }
+
+    runLogs.push({ type: 'cmd', text: `> Executing: ${mainFile} (${language})` });
+    runLogs.push({ type: 'info', text: '⏱ Running with 20-second timeout...' });
+
+    try {
+        const { stdout, stderr } = await execAsync(runCommand, {
+            timeout: 20000,
+            windowsHide: true,
+            cwd: clonePath,  // Set working dir to repo root for relative path resolution
+            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
+
+        const rawOutput = ((stdout || '') + (stderr || '')).trim();
+        const trimmedOutput = rawOutput.substring(0, 3000);
+        const lines = trimmedOutput.split('\n').slice(0, 15);
+
+        runLogs.push({ type: 'success', text: `✅ Execution completed (${rawOutput.length} bytes output)` });
+        lines.forEach(l => { if (l.trim()) runLogs.push({ type: 'output', text: l }); });
+        if (rawOutput.length > 3000) runLogs.push({ type: 'info', text: `... (output truncated at 3000 chars)` });
+
+        return { ran: true, mainFile, output: trimmedOutput, exitSuccess: true, runLogs };
+
+    } catch (runErr) {
+        const rawOutput = ((runErr.stdout || '') + (runErr.stderr || runErr.message || '')).trim();
+        const trimmedOutput = rawOutput.substring(0, 2000);
+        const lines = trimmedOutput.split('\n').slice(0, 10);
+
+        if (runErr.killed || (runErr.message || '').includes('timeout')) {
+            runLogs.push({ type: 'warning', text: '⏰ Execution timed out (20s) — process killed. This may be normal for servers/APIs.' });
+            // Still have partial output
+            lines.forEach(l => { if (l.trim()) runLogs.push({ type: 'output', text: l }); });
+            return { ran: true, mainFile, output: trimmedOutput + '\n[TIMEOUT - process killed after 20s]', exitSuccess: false, runLogs, timedOut: true };
+        }
+
+        runLogs.push({ type: 'error', text: `❌ Execution error: ${(runErr.message || '').substring(0, 150)}` });
+        lines.forEach(l => { if (l.trim()) runLogs.push({ type: 'output', text: l }); });
+        return { ran: true, mainFile, output: trimmedOutput, exitSuccess: false, runLogs };
+    }
 }
