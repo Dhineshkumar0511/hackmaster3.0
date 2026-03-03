@@ -336,7 +336,8 @@ ${githubContext}`;
                 }
             ],
             response_format: { type: 'json_object' },
-            temperature: 0.1,
+            temperature: 0,
+            seed: 42,
             max_tokens: 4096
         });
 
