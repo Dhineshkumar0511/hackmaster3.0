@@ -943,4 +943,92 @@ router.get('/status/:jobId', authMiddleware, adminOnly, (req, res) => {
     res.json(sanitized);
 });
 
+// POST /api/evaluations/re-evaluate/:submissionId
+// Re-run AI evaluation for a submission without re-cloning (fast re-eval)
+router.post('/re-evaluate/:submissionId', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const { submissionId } = req.params;
+        
+        // Fetch submission
+        const [subRows] = await pool.execute(
+            'SELECT * FROM submissions WHERE id = ?',
+            [submissionId]
+        );
+        
+        if (!subRows || subRows.length === 0) {
+            return res.status(404).json({ error: 'Submission not found' });
+        }
+        
+        const submission = subRows[0];
+        
+        // Fetch team to get use case
+        const [teamRows] = await pool.execute(
+            'SELECT * FROM teams WHERE id = ?',
+            [submission.team_id]
+        );
+        
+        if (!teamRows || teamRows.length === 0) {
+            return res.status(404).json({ error: 'Team not found' });
+        }
+        
+        const team = teamRows[0];
+        
+        // Fetch use case
+        const [useCaseRows] = await pool.execute(
+            'SELECT * FROM use_cases WHERE id = ?',
+            [team.use_case_id]
+        );
+        
+        const useCase = useCaseRows?.[0] || { title: 'Unknown', objective: '', domainChallenge: '' };
+        const requirements = typeof useCase.requirements === 'string' 
+            ? JSON.parse(useCase.requirements) 
+            : (useCase.requirements || []);
+        
+        // Queue evaluation with skipForge=true
+        const jobId = evaluationQueue.add({
+            submissionId: submission.id,
+            useCaseTitle: useCase.title || 'Unknown',
+            useCaseObjective: useCase.objective || '',
+            domainChallenge: useCase.domainChallenge || '',
+            requirementText: 'ALL REQUIREMENTS',
+            githubUrl: submission.github_url,
+            phase: submission.phase,
+            allRequirements: requirements,
+            skipForge: true  // Skip forge — use GitHub scan only
+        });
+        
+        res.json({ 
+            message: 'Re-evaluation queued (AI-only, no forge)',
+            jobId: jobId,
+            status: 'pending'
+        });
+    } catch (err) {
+        console.error('Error queuing re-evaluation:', err);
+        res.status(500).json({ error: 'Failed to queue re-evaluation: ' + err.message });
+    }
+});
+
+// POST /api/evaluations/save-comment/:submissionId
+// Save admin comment on a submission
+router.post('/save-comment/:submissionId', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const { submissionId } = req.params;
+        const { comment } = req.body;
+        
+        const [result] = await pool.execute(
+            'UPDATE submissions SET admin_comment = ? WHERE id = ?',
+            [comment || null, submissionId]
+        );
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Submission not found' });
+        }
+        
+        res.json({ message: 'Comment saved', submissionId });
+    } catch (err) {
+        console.error('Error saving comment:', err);
+        res.status(500).json({ error: 'Failed to save comment: ' + err.message });
+    }
+});
+
 export default router;

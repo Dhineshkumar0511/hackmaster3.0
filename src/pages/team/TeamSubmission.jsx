@@ -255,6 +255,13 @@ export default function TeamSubmission() {
                                 <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.6 }}>{selectedReport.report.feedback}</p>
                             </div>
 
+                            {selectedReport.sub.admin_comment && (
+                                <div className="glass-card" style={{ padding: 'var(--space-lg)', marginBottom: 'var(--space-xl)', borderLeft: '4px solid var(--accent-yellow)' }}>
+                                    <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>💬 Admin Feedback</h4>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.6 }}>{selectedReport.sub.admin_comment}</p>
+                                </div>
+                            )}
+
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 'var(--space-xl)', alignItems: 'start' }}>
                                 <div>
                                     <h4 style={{ marginBottom: 'var(--space-md)' }}>📋 Requirement Breakdown</h4>

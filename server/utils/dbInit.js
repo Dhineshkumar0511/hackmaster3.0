@@ -50,10 +50,22 @@ export async function initDb() {
       phase VARCHAR(50) NOT NULL,
       requirement_number INT NOT NULL,
       github_url TEXT NOT NULL,
+      admin_comment TEXT,
       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (team_id) REFERENCES teams(id)
     )
   `);
+
+  // Ensure admin_comment column exists (migration for existing DBs)
+  try {
+    const [subCols] = await pool.execute('DESCRIBE submissions');
+    if (!subCols.some(c => c.Field === 'admin_comment')) {
+      console.log('⚡ Adding `admin_comment` column to submissions...');
+      await pool.execute('ALTER TABLE submissions ADD COLUMN admin_comment TEXT');
+    }
+  } catch (err) {
+    console.warn('⚠️ admin_comment column sync warning (may already exist):', err.message);
+  }
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS evaluation_results (

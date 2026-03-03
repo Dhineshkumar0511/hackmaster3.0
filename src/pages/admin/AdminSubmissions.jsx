@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../../App';
+import { generateEvaluationPDF } from '../../utils/pdfGenerator';
 
 export default function AdminSubmissions() {
     const {
@@ -17,6 +18,8 @@ export default function AdminSubmissions() {
     const [terminalLogs, setTerminalLogs] = useState([]);
     const [overrideValues, setOverrideValues] = useState({ score: 80, feedback: '' });
     const [forgeSubmission, setForgeSubmission] = useState(null); // Track which submission forge is running on
+    const [submissionComment, setSubmissionComment] = useState(''); // Store comment being edited
+    const [editingCommentId, setEditingCommentId] = useState(null); // Track which submission comment is being edited
 
     const findUseCase = (useCaseId) => {
         return (useCases || []).find(u => u.id === useCaseId);
@@ -272,6 +275,86 @@ export default function AdminSubmissions() {
         }
     };
 
+    const handleReEvaluate = async (submission) => {
+        setEvaluatingId(submission.id);
+        try {
+            const token = localStorage.getItem('hackmaster_token');
+            const res = await fetch(`/api/evaluations/re-evaluate/${submission.id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Re-evaluation failed');
+
+            showToast('🔄 AI Re-evaluation queued (AI-only, no forge)...', 'info');
+            const jobId = data.jobId;
+            let pollCount = 0;
+            const poll = setInterval(async () => {
+                pollCount++;
+                try {
+                    const statusRes = await fetch(`/api/evaluations/status/${jobId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (!statusRes.ok) { clearInterval(poll); setEvaluatingId(null); return; }
+                    const job = await statusRes.json();
+                    if (job.status === 'completed') {
+                        clearInterval(poll);
+                        showToast(`✅ Re-evaluation complete for Team #${submission.team_number}`, 'success');
+                        await fetchEvaluations();
+                        setEvaluatingId(null);
+                    } else if (job.status === 'failed') {
+                        clearInterval(poll);
+                        showToast(`❌ Re-evaluation failed: ${job.error || 'Unknown error'}`, 'error');
+                        setEvaluatingId(null);
+                    } else if (pollCount > 150) { clearInterval(poll); setEvaluatingId(null); }
+                } catch (e) { clearInterval(poll); setEvaluatingId(null); }
+            }, 2000);
+        } catch (error) {
+            showToast(error.message, 'error');
+            setEvaluatingId(null);
+        }
+    };
+
+    const handleExportPDF = async (sub, report) => {
+        try {
+            const useCase = findUseCase(sub.use_case_id);
+            const team = teams.find(t => t.id === sub.team_id);
+            
+            if (!team) {
+                showToast('Team not found', 'error');
+                return;
+            }
+
+            generateEvaluationPDF(team, report, useCase);
+            showToast('📥 PDF downloaded successfully!', 'success');
+        } catch (error) {
+            showToast('Failed to export PDF: ' + error.message, 'error');
+        }
+    };
+
+    const handleSaveComment = async (submission) => {
+        try {
+            const token = localStorage.getItem('hackmaster_token');
+            const res = await fetch(`/api/evaluations/save-comment/${submission.id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ comment: submissionComment }),
+            });
+
+            if (!res.ok) throw new Error('Failed to save comment');
+            showToast('✅ Comment saved successfully!', 'success');
+            setEditingCommentId(null);
+            setSubmissionComment('');
+            fetchEvaluations();
+        } catch (error) {
+            showToast('Error saving comment: ' + error.message, 'error');
+        }
+    };
+
     const ReportModal = ({ sub, report }) => {
         if (!sub || !report) return null;
         let details = [];
@@ -356,6 +439,74 @@ export default function AdminSubmissions() {
                                         border: '1px solid rgba(108,99,255,0.3)', textDecoration: 'none'
                                     }}>👤 View GitHub Profile</a>
                                 )}
+                            </div>
+                        </div>
+
+                        {/* Admin Comment Section */}
+                        <div className="glass-card" style={{ padding: 'var(--space-lg)', marginBottom: 'var(--space-xl)', borderLeft: '4px solid var(--accent-yellow)' }}>
+                            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>💬 Admin Feedback</h4>
+                            {editingCommentId === sub.id ? (
+                                <div>
+                                    <textarea
+                                        value={submissionComment}
+                                        onChange={(e) => setSubmissionComment(e.target.value)}
+                                        placeholder="Leave feedback for the team..."
+                                        style={{
+                                            width: '100%', minHeight: '80px', padding: '10px', borderRadius: '6px',
+                                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                                            color: '#fff', fontFamily: 'inherit', fontSize: '0.85rem', resize: 'vertical'
+                                        }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                        <button 
+                                            className="btn btn-primary btn-sm" 
+                                            onClick={() => handleSaveComment(sub)}
+                                        >
+                                            ✅ Save Comment
+                                        </button>
+                                        <button 
+                                            className="btn btn-secondary btn-sm" 
+                                            onClick={() => { setEditingCommentId(null); setSubmissionComment(''); }}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    {sub.admin_comment ? (
+                                        <p style={{ fontSize: '0.85rem', margin: '0 0 8px 0', lineHeight: 1.6, fontStyle: 'italic' }}>{sub.admin_comment}</p>
+                                    ) : (
+                                        <p style={{ fontSize: '0.85rem', margin: '0 0 8px 0', color: 'var(--text-muted)' }}>No feedback yet</p>
+                                    )}
+                                    <button 
+                                        className="btn btn-secondary btn-sm" 
+                                        onClick={() => { setEditingCommentId(sub.id); setSubmissionComment(sub.admin_comment || ''); }}
+                                    >
+                                        ✏️ Edit Feedback
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="glass-card" style={{ padding: 'var(--space-lg)', marginBottom: 'var(--space-xl)', background: 'rgba(108,99,255,0.05)', border: '1px solid rgba(108,99,255,0.2)' }}>
+                            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem' }}>⚡ Actions</h4>
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                <button 
+                                    className="btn btn-primary btn-sm" 
+                                    onClick={() => handleReEvaluate(sub)}
+                                    title="Re-run AI evaluation without re-cloning (fast)"
+                                >
+                                    🔄 Re-evaluate
+                                </button>
+                                <button 
+                                    className="btn btn-secondary btn-sm" 
+                                    onClick={() => handleExportPDF(sub, report)}
+                                    title="Download evaluation report as PDF"
+                                >
+                                    📥 Export PDF
+                                </button>
                             </div>
                         </div>
 
