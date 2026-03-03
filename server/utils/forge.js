@@ -365,7 +365,30 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
             const mainAbsPath = mainFile.includes(path.sep) || mainFile.includes('/')
                 ? path.join(clonePath, mainFile)
                 : path.join(clonePath, mainFile);
-            runCommand = `"${pythonExe}" "${mainAbsPath}"`;
+            
+            // Create a wrapper script that handles errors gracefully
+            const wrapperScript = path.join(clonePath, '.forge_wrapper.py');
+            const wrapperCode = `#!/usr/bin/env python3
+import sys
+import traceback
+import importlib.util
+
+try:
+    # Load the main module
+    spec = importlib.util.spec_from_file_location("__forge_main__", "${mainAbsPath.replace(/\\/g, '\\\\')}")
+    if spec and spec.loader:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["__forge_main__"] = module
+        spec.loader.exec_module(module)
+    else:
+        raise ImportError(f"Could not load module from {spec}")
+except Exception as e:
+    print(f"\\n[FORGE ERROR] {type(e).__name__}: {e}")
+    traceback.print_exc()
+    sys.exit(1)
+`;
+            await fs.writeFile(wrapperScript, wrapperCode);
+            runCommand = `"${pythonExe}" "${wrapperScript}"`;
         }
     }
 
@@ -413,30 +436,32 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
             env: {
                 ...process.env,
                 PYTHONUNBUFFERED: '1',
-                // ---- Dummy API keys so student imports don't crash ----
-                // Students use various AI providers — inject placeholders so
-                // `Groq(api_key=os.getenv("GROQ_API_KEY"))` doesn't crash on import
-                GROQ_API_KEY: process.env.GROQ_API_KEY || 'gsk_dummy_forge_key_placeholder',
-                OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-dummy_forge_key_placeholder',
-                GEMINI_API_KEY: process.env.GEMINI_API_KEY || 'AIza_dummy_forge_key_placeholder',
-                GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || 'AIza_dummy_forge_key_placeholder',
-                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || 'sk-ant-dummy_forge_key_placeholder',
-                COHERE_API_KEY: process.env.COHERE_API_KEY || 'dummy_cohere_forge_key',
-                HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY || 'hf_dummy_forge_key_placeholder',
-                HF_TOKEN: process.env.HF_TOKEN || 'hf_dummy_forge_key_placeholder',
-                MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || 'dummy_mistral_forge_key',
-                TOGETHER_API_KEY: process.env.TOGETHER_API_KEY || 'dummy_together_forge_key',
-                REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN || 'dummy_replicate_forge_key',
-                PINECONE_API_KEY: process.env.PINECONE_API_KEY || 'dummy_pinecone_forge_key',
-                WEAVIATE_API_KEY: process.env.WEAVIATE_API_KEY || 'dummy_weaviate_forge_key',
-                CHROMA_API_KEY: process.env.CHROMA_API_KEY || 'dummy_chroma_forge_key',
-                LANGCHAIN_API_KEY: process.env.LANGCHAIN_API_KEY || 'dummy_langchain_forge_key',
-                SUPABASE_KEY: process.env.SUPABASE_KEY || 'dummy_supabase_forge_key',
-                SUPABASE_URL: process.env.SUPABASE_URL || 'https://dummy.supabase.co',
-                FIREBASE_API_KEY: process.env.FIREBASE_API_KEY || 'dummy_firebase_forge_key',
-                SECRET_KEY: process.env.SECRET_KEY || 'dummy_secret_forge_key_hackmaster',
-                API_KEY: process.env.API_KEY || 'dummy_api_forge_key',
+                // ---- Realistic dummy API keys so student imports don't crash ----
+                // Format per provider req; groq validates key prefix, etc.
+                GROQ_API_KEY: process.env.GROQ_API_KEY || 'gsk_live_abcdef123456789abcdef123456789abcdef123456789',
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-proj-abcdef123456789abcdef123456789abcdef123456',
+                GEMINI_API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyAbcdef123456789abcdef123456789abcdef1',
+                GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || 'AIzaSyAbcdef123456789abcdef123456789abcdef2',
+                ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || 'sk-ant-v1abcdef123456789abcdef123456789abcdef1',
+                COHERE_API_KEY: process.env.COHERE_API_KEY || 'abcdef123456789abcdef123456789abcdef12345678',
+                HF_TOKEN: process.env.HF_TOKEN || 'hf_abcdef123456789abcdef123456789abcdef1234567',
+                HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY || 'hf_abcdef123456789abcdef123456789abcdef1234567',
+                MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || 'abcdef123456789abcdef123456789abcdef12345678',
+                TOGETHER_API_KEY: process.env.TOGETHER_API_KEY || 'abcdef123456789abcdef123456789abcdef12345678',
+                REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN || 'abcdef123456789abcdef123456789abcdef12345678',
+                PINECONE_API_KEY: process.env.PINECONE_API_KEY || 'abcdef12-abcd-abcd-abcd-abcdef123456',
+                WEAVIATE_API_KEY: process.env.WEAVIATE_API_KEY || 'abcdef123456789abcdef123456789abcdef12345678',
+                CHROMA_API_KEY: process.env.CHROMA_API_KEY || 'abcdef123456789abcdef123456789abcdef12345678',
+                LANGCHAIN_API_KEY: process.env.LANGCHAIN_API_KEY || 'abcdef123456789abcdef123456789abcdef12345678',
+                SUPABASE_KEY: process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy.dummy',
+                SUPABASE_URL: process.env.SUPABASE_URL || 'https://dummy-proj.supabase.co',
+                FIREBASE_API_KEY: process.env.FIREBASE_API_KEY || 'AIzaSyAbcdef123456789abcdef123456789abcdef3',
+                SECRET_KEY: process.env.SECRET_KEY || 'dummy_secret_forge_key_hackmaster_6e7f8g9h0i',
+                API_KEY: process.env.API_KEY || 'dummy_api_key_forge_abcdef123456789abcdef1',
+                DATABASE_URL: process.env.DATABASE_URL || 'postgresql://user:pass@localhost:5432/db',
+                REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379/0',
                 PORT: '8080',
+                DEBUG: '1',
             }
         });
 
