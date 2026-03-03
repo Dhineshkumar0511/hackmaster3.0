@@ -155,27 +155,29 @@ const evaluationWorker = async (data, job) => {
         }
 
         // ---- STEP 2: Build context ----
-        const reqsList = Array.isArray(allRequirements) ? allRequirements : [requirementText];
-        const reqsFormatted = reqsList.map((r, i) => `R${i + 1}: ${typeof r === 'string' ? r : 'Requirement'}`).join('\n');
+        const reqsList = Array.isArray(allRequirements) && allRequirements.length > 0
+            ? allRequirements
+            : (requirementText && requirementText !== 'ALL REQUIREMENTS' ? [requirementText] : []);
         const fileSummary = githubData.fileContents?.map(f => `  - ${f.path}`).join('\n') || 'None';
 
-        // ---- STEP 3: Call AI ----
+        // ---- STEP 3: Call AI (per-requirement — each req gets its own focused call) ----
         const cerebrasPool = buildCerebrasKeyPool();
         let evaluation = null;
         let aiSkipReason = null;
 
-        if (cerebrasPool.length > 0) {
-            console.log(`   🔑 Cerebras key pool: ${cerebrasPool.length} key(s) available`);
-            evaluation = await callAIEvaluation({
+        if (cerebrasPool.length > 0 && reqsList.length > 0) {
+            console.log(`   🔑 Cerebras key pool: ${cerebrasPool.length} key(s) | Evaluating ${reqsList.length} requirements individually...`);
+            // Truncated code context per-call (keeps each prompt small and focused)
+            const codeContext = githubData.fullContext.substring(0, 28000);
+            evaluation = await callAIPerRequirement({
                 getKey: getNextCerebrasKey,
                 keyPoolSize: cerebrasPool.length,
                 useCaseTitle,
                 useCaseObjective,
                 domainChallenge,
                 phase,
-                reqsFormatted,
                 reqsList,
-                githubContext: githubData.fullContext,
+                codeContext,
                 execOutput,
                 fileSummary,
                 repoStats: githubData.stats,
@@ -183,9 +185,12 @@ const evaluationWorker = async (data, job) => {
                 repoInfo
             });
             if (!evaluation) aiSkipReason = 'AI call failed (rate limit or API error — all keys exhausted)';
-        } else {
+        } else if (cerebrasPool.length === 0) {
             aiSkipReason = 'No CEREBRAS_API_KEY configured on server (add to Render env vars)';
             console.error(`   ❌ ${aiSkipReason}`);
+        } else {
+            aiSkipReason = 'No requirements found for this use case';
+            console.warn(`   ⚠️ ${aiSkipReason}`);
         }
 
         // ---- STEP 4: Fallback ----
@@ -230,7 +235,197 @@ router.post('/evaluate', authMiddleware, adminOnly, async (req, res) => {
 });
 
 /**
- * Call Cerebras AI for deep evaluation
+ * ============================================================
+ * PER-REQUIREMENT AI EVALUATION
+ * ============================================================
+ * Each requirement is evaluated in its own focused AI call.
+ * This prevents the model from losing track of requirements
+ * in a long list and ensures every requirement is properly judged.
+ * ============================================================
+ */
+
+/**
+ * Make one Cerebras API call and return parsed JSON
+ */
+async function cerebrasCall({ getKey, keyPoolSize, systemPrompt, userPrompt }) {
+    const maxAttempts = Math.max(keyPoolSize || 1, 1);
+    let response = null;
+    let lastError = null;
+
+    const requestBody = JSON.stringify({
+        model: 'llama3.1-8b',
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0,
+        seed: 42,
+        max_tokens: 1024
+    });
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const apiKey = getKey();
+        if (!apiKey) { console.error('   ❌ No Cerebras API keys available!'); break; }
+        try {
+            response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(60000),
+                body: requestBody
+            });
+            if (response.ok) break;
+            const errText = await response.text();
+            console.error(`❌ Cerebras Error (attempt ${attempt + 1}): ${response.status} ${errText.substring(0, 150)}`);
+            if (response.status === 429 || response.status === 401) { response = null; continue; }
+            return null; // non-retryable
+        } catch (fetchErr) {
+            if (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError') {
+                console.error(`❌ AI call timed out (attempt ${attempt + 1})`);
+                return null;
+            }
+            throw fetchErr;
+        }
+    }
+
+    if (!response || !response.ok) { console.error(`❌ AI call failed after ${maxAttempts} attempts`); return null; }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    return parseAIResponse(content);
+}
+
+/**
+ * Evaluate ALL requirements — each in its own focused AI call, then one summary call
+ */
+async function callAIPerRequirement({ getKey, keyPoolSize, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsList, codeContext, execOutput, fileSummary, repoStats, teamMembers, repoInfo }) {
+
+    const execSection = execOutput ? `\n\n## EXECUTION OUTPUT\n${execOutput}` : '';
+
+    // ---- Evaluate each requirement independently ----
+    const detailedReport = [];
+    for (let i = 0; i < reqsList.length; i++) {
+        const reqText = typeof reqsList[i] === 'string' ? reqsList[i] : String(reqsList[i]);
+        console.log(`   📋 [${i + 1}/${reqsList.length}] Evaluating: ${reqText.substring(0, 50)}...`);
+
+        const reqResult = await cerebrasCall({
+            getKey,
+            keyPoolSize,
+            systemPrompt: 'You are a strict hackathon code judge. Respond ONLY with valid JSON. No markdown.',
+            userPrompt: `You are evaluating a student hackathon project for ONE specific requirement.
+
+## USE CASE: ${useCaseTitle}
+## REQUIREMENT (R${i + 1}): ${reqText}
+
+## CRITICAL RULES:
+- DO NOT look for the exact function/method/variable name from the requirement text
+- Look for the UNDERLYING CONCEPT implemented in ANY form with ANY naming
+- If the logic/feature exists ANYWHERE in the codebase it COUNTS
+- "Met" = clearly implemented (score 70-100)
+- "Partial" = concept attempted but incomplete (score 25-69)
+- "Not Met" = concept completely absent (score 0-24)
+
+## PROJECT FILES:
+${fileSummary}
+${execSection}
+
+## CODE:
+${codeContext}
+
+Respond ONLY with this JSON:
+{
+  "status": "Met|Partial|Not Met",
+  "score": <0-100>,
+  "explanation": "<specific code evidence found — which files, what logic?>",
+  "filesFound": ["<file1>"],
+  "mistakes": ["<gap or improvement needed>"]
+}`
+        });
+
+        if (reqResult) {
+            const clamp = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+            const score = clamp(reqResult.score);
+            let status = reqResult.status;
+            if (!['Met', 'Partial', 'Not Met'].includes(status)) {
+                status = score >= 70 ? 'Met' : score >= 25 ? 'Partial' : 'Not Met';
+            }
+            detailedReport.push({
+                req: `R${i + 1}: ${reqText}`,
+                status,
+                score,
+                explanation: String(reqResult.explanation || 'No explanation provided'),
+                filesFound: Array.isArray(reqResult.filesFound) ? reqResult.filesFound : [],
+                mistakes: Array.isArray(reqResult.mistakes) ? reqResult.mistakes.map(String) : [],
+            });
+        } else {
+            console.warn(`   ⚠️ R${i + 1} evaluation failed, marking as Not Evaluated`);
+            detailedReport.push({
+                req: `R${i + 1}: ${reqText}`,
+                status: 'Not Met',
+                score: 0,
+                explanation: 'AI evaluation failed for this requirement (API error or timeout).',
+                filesFound: [],
+                mistakes: ['Evaluation failed — retry recommended'],
+            });
+        }
+    }
+
+    // ---- One final call for overall quality, innovation, feedback ----
+    console.log(`   🧠 Final: Generating overall quality + feedback...`);
+    const reqsSummary = detailedReport.map(r => `${r.req}: ${r.status} (${r.score}%)`).join('\n');
+    const summaryResult = await cerebrasCall({
+        getKey,
+        keyPoolSize,
+        systemPrompt: 'You are a strict hackathon code judge. Respond ONLY with valid JSON. No markdown.',
+        userPrompt: `You have already evaluated each requirement for a student hackathon project.
+
+## USE CASE: ${useCaseTitle}
+## REQUIREMENT RESULTS:
+${reqsSummary}
+
+## REPO INFO:
+- Files analyzed: ${repoStats?.filesAnalyzed || 0}
+- Languages: ${JSON.stringify(repoStats?.filesByType || {})}
+${execSection}
+
+Now provide OVERALL scores (code quality and innovation — NOT requirement satisfaction):
+
+{
+  "codeQuality": <0-100, judge code structure/error-handling/modularity>,
+  "innovation": <0-100, judge novelty/UX/production-readiness>,
+  "plagiarismRisk": "Low|Medium|High",
+  "feedback": "<4-6 sentence technical summary. Mention specific files. What works, what's missing.>"
+}`
+    });
+
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
+    const codeQuality = clamp(summaryResult?.codeQuality ?? 40, 0, 100);
+    const innovation = clamp(summaryResult?.innovation ?? 30, 0, 100);
+    const requirementsMet = detailedReport.filter(r => r.score >= 70).length;
+    const reqSatisfaction = detailedReport.length > 0
+        ? clamp(detailedReport.reduce((s, r) => s + r.score, 0) / detailedReport.length, 0, 100)
+        : 0;
+    const totalScore = clamp((codeQuality * 0.25) + (reqSatisfaction * 0.50) + (innovation * 0.25), 0, 100);
+
+    console.log(`   ✅ Per-req evaluation done — ${requirementsMet}/${reqsList.length} met | Total: ${totalScore}`);
+
+    return {
+        codeQuality,
+        reqSatisfaction,
+        innovation,
+        totalScore,
+        requirementsMet,
+        feedback: String(summaryResult?.feedback || `Evaluated ${requirementsMet}/${reqsList.length} requirements.`),
+        detailedReport,
+        plagiarismRisk: String(summaryResult?.plagiarismRisk || 'Low'),
+        identityVerified: true,
+    };
+}
+
+/**
+ * Call Cerebras AI for deep evaluation (LEGACY — kept for reference)
  */
 async function callAIEvaluation({ getKey, keyPoolSize, useCaseTitle, useCaseObjective, domainChallenge, phase, reqsFormatted, reqsList, githubContext, execOutput, fileSummary, repoStats, teamMembers, repoInfo }) {
 
