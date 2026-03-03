@@ -376,54 +376,39 @@ import types
 
 # ---- Mock AI client libraries to prevent import/init crashes ----
 # Student code like "client = Groq(api_key=...)" should NOT crash forge execution
-# These mocks let the code import and initialize without calling real APIs
 
 class MockAIClient:
     """Dummy AI client that accepts any kwargs"""
     def __init__(self, **kwargs):
         self.kwargs = kwargs
-    
     def __getattr__(self, name):
-        """Return dummy for any method call"""
         return lambda *args, **kwargs: MockAIClient()
 
-# Create mock modules for common AI libraries
-groq_module = types.ModuleType('groq')
-groq_module.Groq = MockAIClient
+# Create mocks for common AI libraries
+mock_libs = {
+    'groq': {'Groq': MockAIClient},
+    'openai': {'OpenAI': MockAIClient, 'AzureOpenAI': MockAIClient},
+    'anthropic': {'Anthropic': MockAIClient},
+    'cohere': {'Client': MockAIClient},
+    'mistralai': {'Mistral': MockAIClient},
+    'together': {'Together': MockAIClient},
+    'huggingface_hub': {},
+    'google.generativeai': {'GenerativeModel': MockAIClient},
+}
 
-openai_module = types.ModuleType('openai')
-openai_module.OpenAI = MockAIClient
-openai_module.AzureOpenAI = MockAIClient
+for lib_name, classes in mock_libs.items():
+    mod = types.ModuleType(lib_name)
+    for cls_name, cls_obj in classes.items():
+        setattr(mod, cls_name, cls_obj)
+    sys.modules[lib_name] = mod
 
-google_module = types.ModuleType('google')
-google_genai = types.ModuleType('genai')
-google_genai.GenerativeModel = MockAIClient
-google.genai = google_genai
-
-anthropic_module = types.ModuleType('anthropic')
-anthropic_module.Anthropic = MockAIClient
-
-cohere_module = types.ModuleType('cohere')
-cohere_module.Client = MockAIClient
-
-huggingface_module = types.ModuleType('huggingface_hub')
-
-mistral_module = types.ModuleType('mistralai')
-mistral_module.Mistral = MockAIClient
-
-together_module = types.ModuleType('together')
-together_module.Together = MockAIClient
-
-# Inject mocks into sys.modules so imports succeed
-sys.modules['groq'] = groq_module
-sys.modules['openai'] = openai_module
-sys.modules['google'] = google_module
-sys.modules['google.genai'] = google_genai
-sys.modules['anthropic'] = anthropic_module
-sys.modules['cohere'] = cohere_module
-sys.modules['huggingface_hub'] = huggingface_module
-sys.modules['mistralai'] = mistral_module
-sys.modules['together'] = together_module
+# Special handling for google.genai nested import
+google_mod = types.ModuleType('google')
+genai_mod = types.ModuleType('google.genai')
+genai_mod.GenerativeModel = MockAIClient
+google_mod.genai = genai_mod
+sys.modules['google'] = google_mod
+sys.modules['google.genai'] = genai_mod
 
 try:
     # Load the main module
@@ -433,7 +418,7 @@ try:
         sys.modules["__forge_main__"] = module
         spec.loader.exec_module(module)
     else:
-        raise ImportError(f"Could not load module from {spec}")
+        raise ImportError(f"Could not load module")
 except Exception as e:
     print(f"\\n[FORGE ERROR] {type(e).__name__}: {e}")
     traceback.print_exc()
