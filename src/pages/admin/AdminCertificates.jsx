@@ -56,11 +56,18 @@ export default function AdminCertificates() {
     };
 
     const bulkIssueParticipation = async () => {
-        if (!window.confirm('Issue participation certificates to all teams in this batch?')) return;
+        // Count registered teams (teams with members)
+        const registeredTeams = filteredTeams.filter(t => t.members && t.members.length > 0);
+        if (registeredTeams.length === 0) {
+            showToast('No registered teams found. Teams must have members to receive certificates.', 'warning');
+            return;
+        }
+        
+        if (!window.confirm(`Issue participation certificates to ${registeredTeams.length} registered teams?`)) return;
         setIssuing(true);
         try {
             const token = localStorage.getItem('hackmaster_token');
-            for (const team of filteredTeams) {
+            for (const team of registeredTeams) {
                 if (!certList.find(c => c.team_id === team.id && c.type === 'participation')) {
                     await fetch('/api/certificates', {
                         method: 'POST',
@@ -72,7 +79,7 @@ export default function AdminCertificates() {
                     });
                 }
             }
-            showToast('Bulk issuance complete!', 'success');
+            showToast(`Bulk issuance complete! Issued ${registeredTeams.length} certificates.`, 'success');
             fetchCertificates();
         } catch (err) {
             showToast('Failed in bulk issuance', 'error');
