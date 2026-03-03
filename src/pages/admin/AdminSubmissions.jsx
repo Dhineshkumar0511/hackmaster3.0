@@ -26,10 +26,7 @@ export default function AdminSubmissions() {
         setEvaluatingId(submission.id);
         try {
             const useCase = findUseCase(submission.use_case_id);
-            const isAllReqs = submission.requirement_number === 0 || submission.requirement_number === '0';
-            const requirementText = isAllReqs
-                ? 'ALL REQUIREMENTS'
-                : `R${submission.requirement_number}: ${useCase?.requirements?.[submission.requirement_number - 1] || 'Unknown'}`;
+            const requirementText = 'ALL REQUIREMENTS';
 
             const token = localStorage.getItem('hackmaster_token');
             const res = await fetch('/api/evaluations/evaluate', {
@@ -228,10 +225,7 @@ export default function AdminSubmissions() {
         setEvaluatingId(submission.id);
         try {
             const useCase = findUseCase(submission.use_case_id);
-            const isAllReqs = submission.requirement_number === 0 || submission.requirement_number === '0';
-            const requirementText = isAllReqs
-                ? 'ALL REQUIREMENTS'
-                : `R${submission.requirement_number}: ${useCase?.requirements?.[submission.requirement_number - 1] || 'Unknown'}`;
+            const requirementText = 'ALL REQUIREMENTS';
             const token = localStorage.getItem('hackmaster_token');
             const res = await fetch('/api/evaluations/evaluate', {
                 method: 'POST',
@@ -745,7 +739,7 @@ export default function AdminSubmissions() {
                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>#{sub.team_number}</div>
                                         </td>
                                         <td><span className="badge badge-info">{sub.phase}</span></td>
-                                        <td><span className="badge badge-primary">{sub.requirement_number === 0 || sub.requirement_number === '0' ? 'ALL' : `R${sub.requirement_number}`}</span></td>
+                                        <td><span className="badge badge-primary">Sub #{sub.requirement_number || 1}</span></td>
                                         <td><a href={sub.github_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', fontSize: '0.8rem', wordBreak: 'break-all' }}>{sub.github_url.replace('https://github.com/', '').substring(0, 35)}</a></td>
                                         <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(sub.timestamp).toLocaleString()}</td>
                                         <td>

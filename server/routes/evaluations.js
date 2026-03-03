@@ -260,24 +260,34 @@ ${reqsFormatted}
 ${fileSummary}
 ${execOutput ? execOutput : ''}
 
-## EVALUATION CRITERIA (STRICT):
-1. **Requirement Satisfaction (50% weight)**: Does code implement each requirement? Look for actual implementation, not just keywords.
-2. **Code Quality (25% weight)**: Structure, error handling, modularity. 
+## EVALUATION CRITERIA (STRICT BUT FAIR):
+1. **Requirement Satisfaction (50% weight)**: Does code implement each requirement's CONCEPT/FUNCTIONALITY — in ANY form?
+2. **Code Quality (25% weight)**: Structure, error handling, modularity.
 3. **Innovation (25% weight)**: Novel approach, good UX, extra features, production-readiness.
+
+## ⚠️ CRITICAL EVALUATION RULES — READ CAREFULLY:
+- **DO NOT** look for exact function names or variable names from the requirement text.
+- Example: Requirement says "answer_with_citations()" → look for ANY code that answers questions while providing citations/sources/references. The function can be named ANYTHING.
+- Example: Requirement says "Similarity threshold" → look for ANY threshold/cutoff/score comparison logic anywhere in the code. Variable can be named anything.
+- Example: Requirement says "Top-k comparison" → look for any top-k / best-k / ranked results logic anywhere.
+- Students write code in their OWN STYLE. Evaluate the UNDERLYING CONCEPT, not the exact naming.
+- If the logic/feature exists ANYWHERE in the codebase (inline code, class method, route handler, helper function, lambda) it COUNTS.
+- Only mark "Not Met" if the concept/feature is COMPLETELY ABSENT — zero evidence in the entire codebase.
+- "Partial" = concept exists but is incomplete, simplified, or missing key aspects.
 
 ### SCORING SCALE:
 - 90-100: Elite — fully implemented, polished, production-quality
-- 70-89: Advanced — well implemented with minor gaps
-- 50-69: Intermediate — partially implemented
-- 25-49: Novice — attempted but incomplete
-- 0-10: Not implemented / wrong topic
+- 70-89: Advanced — well implemented with minor gaps  
+- 50-69: Intermediate — partially implemented or implemented differently than described
+- 25-49: Novice — concept attempted but significantly incomplete
+- 0-10: Concept completely absent from the entire codebase
 
-### REQUIREMENT EVALUATION:
-For EACH requirement, you MUST:
-1. Search the code for actual implementation evidence (function names, logic, data structures)
-2. Check if it's actually WORKING code, not just a comment or placeholder
-3. Give a score 0-100 and specific file evidence
-${execOutput ? `4. Verify if the EXECUTION OUTPUT confirms the requirement works at runtime` : ''}
+### FOR EACH REQUIREMENT YOU MUST:
+1. Understand WHAT the requirement is asking for (the concept/feature/behaviour, not the name)
+2. Search ALL the code for ANY implementation of that concept — regardless of naming conventions
+3. Look at: API routes, data structures, logic blocks, algorithms, variable names, comments — everything
+4. Provide specific file names and describe the code evidence found
+${execOutput ? `5. Check if execution output confirms the feature runs` : ''}
 
 ## RESPOND WITH VALID JSON ONLY — NO MARKDOWN, NO EXPLANATION:
 {
