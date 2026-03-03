@@ -264,6 +264,8 @@ async function cerebrasCall({ getKey, keyPoolSize, systemPrompt, userPrompt }) {
         max_tokens: 1024
     });
 
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    // Try each key; on 429 wait then retry with next key
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const apiKey = getKey();
         if (!apiKey) { console.error('   ❌ No Cerebras API keys available!'); break; }
@@ -277,7 +279,13 @@ async function cerebrasCall({ getKey, keyPoolSize, systemPrompt, userPrompt }) {
             if (response.ok) break;
             const errText = await response.text();
             console.error(`❌ Cerebras Error (attempt ${attempt + 1}): ${response.status} ${errText.substring(0, 150)}`);
-            if (response.status === 429 || response.status === 401) { response = null; continue; }
+            if (response.status === 429) {
+                const waitMs = 3000 + attempt * 2000; // 3s, 5s, 7s...
+                console.warn(`   ⏳ Rate limited — waiting ${waitMs / 1000}s before retry with next key...`);
+                await sleep(waitMs);
+                response = null; continue;
+            }
+            if (response.status === 401) { response = null; continue; }
             return null; // non-retryable
         } catch (fetchErr) {
             if (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError') {
@@ -305,9 +313,13 @@ async function callAIPerRequirement({ getKey, keyPoolSize, useCaseTitle, useCase
     const execSection = execOutput ? `\n\n## EXECUTION OUTPUT\n${execOutput}` : '';
 
     // ---- Evaluate each requirement independently ----
+    const stripReqPrefix = (text) => String(text).replace(/^R?\d+[:\s.\-]+/i, '').trim();
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const detailedReport = [];
     for (let i = 0; i < reqsList.length; i++) {
-        const reqText = typeof reqsList[i] === 'string' ? reqsList[i] : String(reqsList[i]);
+        const rawReqText = typeof reqsList[i] === 'string' ? reqsList[i] : String(reqsList[i]);
+        const reqText = stripReqPrefix(rawReqText); // remove any stored R1/R2 prefix
+        if (i > 0) await sleep(1500); // 1.5s gap between calls to avoid rate limit
         console.log(`   📋 [${i + 1}/${reqsList.length}] Evaluating: ${reqText.substring(0, 50)}...`);
 
         const reqResult = await cerebrasCall({
@@ -344,6 +356,7 @@ Respond ONLY with this JSON:
 }`
         });
 
+        const label = `R${i + 1}: ${reqText}`;
         if (reqResult) {
             const clamp = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
             const score = clamp(reqResult.score);
@@ -351,8 +364,9 @@ Respond ONLY with this JSON:
             if (!['Met', 'Partial', 'Not Met'].includes(status)) {
                 status = score >= 70 ? 'Met' : score >= 25 ? 'Partial' : 'Not Met';
             }
+            console.log(`      ✅ R${i + 1}: ${status} (${score}%)`);
             detailedReport.push({
-                req: `R${i + 1}: ${reqText}`,
+                req: label,
                 status,
                 score,
                 explanation: String(reqResult.explanation || 'No explanation provided'),
@@ -360,19 +374,20 @@ Respond ONLY with this JSON:
                 mistakes: Array.isArray(reqResult.mistakes) ? reqResult.mistakes.map(String) : [],
             });
         } else {
-            console.warn(`   ⚠️ R${i + 1} evaluation failed, marking as Not Evaluated`);
+            console.warn(`   ⚠️ R${i + 1} evaluation failed — marked Not Evaluated`);
             detailedReport.push({
-                req: `R${i + 1}: ${reqText}`,
+                req: label,
                 status: 'Not Met',
                 score: 0,
-                explanation: 'AI evaluation failed for this requirement (API error or timeout).',
+                explanation: 'AI evaluation failed for this requirement (rate limit or API timeout — please retry).',
                 filesFound: [],
-                mistakes: ['Evaluation failed — retry recommended'],
+                mistakes: ['Evaluation failed — retry this evaluation'],
             });
         }
     }
 
     // ---- One final call for overall quality, innovation, feedback ----
+    await sleep(1500); // gap before final summary call
     console.log(`   🧠 Final: Generating overall quality + feedback...`);
     const reqsSummary = detailedReport.map(r => `${r.req}: ${r.status} (${r.score}%)`).join('\n');
     const summaryResult = await cerebrasCall({
