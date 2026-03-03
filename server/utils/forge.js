@@ -238,12 +238,25 @@ export async function forgeAudit(githubUrl, submissionId) {
             } else if (stats.hasRequirementsTxt) {
                 // Create a virtualenv and install deps so execution works
                 const venvPath = path.join(clonePath, '.forge_venv');
-                buildLogs.push({ type: 'cmd', text: '> python -m venv .forge_venv && pip install -r requirements.txt' });
+                buildLogs.push({ type: 'cmd', text: '> python3 -m venv .forge_venv && pip install -r requirements.txt' });
                 try {
-                    // Create venv
-                    await execAsync(`python -m venv "${venvPath}"`, { timeout: 30000 });
-                    // Determine venv python path
+                    // Detect python command (Render Linux uses python3; Windows uses python)
                     const isWin = process.platform === 'win32';
+                    let pythonCmd = 'python3';
+                    if (isWin) {
+                        pythonCmd = 'python';
+                    } else {
+                        // On Linux: try python3 first, fall back to python
+                        try {
+                            await execAsync('python3 --version', { timeout: 5000 });
+                            pythonCmd = 'python3';
+                        } catch (_) {
+                            pythonCmd = 'python';
+                        }
+                    }
+                    // Create venv
+                    await execAsync(`${pythonCmd} -m venv "${venvPath}"`, { timeout: 30000 });
+                    // Determine venv python path
                     venvPython = isWin
                         ? path.join(venvPath, 'Scripts', 'python.exe')
                         : path.join(venvPath, 'bin', 'python');
@@ -311,7 +324,8 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
     let runCommand = null;
     let language = null;
     // Use venv python if available (deps installed), else fall back to system python
-    const pythonExe = venvPython || 'python';
+    const systemPython = process.platform === 'win32' ? 'python' : 'python3';
+    const pythonExe = venvPython || systemPython;
 
     // ---- Detect entry point from README if available ----
     let readmeHint = '';

@@ -76,7 +76,7 @@ export default function AdminSubmissions() {
                     if (job.status === 'completed') {
                         clearInterval(poll);
                         showToast(`✅ AI Evaluation complete for Team #${submission.team_number}`, 'success');
-                        fetchEvaluations();
+                        await fetchEvaluations(); // wait for data before clearing spinner
                         setEvaluatingId(null);
                     } else if (job.status === 'failed') {
                         clearInterval(poll);
@@ -257,7 +257,7 @@ export default function AdminSubmissions() {
                     if (job.status === 'completed') {
                         clearInterval(poll);
                         showToast(`✅ Full Audit complete for Team #${submission.team_number}`, 'success');
-                        fetchEvaluations();
+                        await fetchEvaluations(); // wait for data before clearing spinner
                         setEvaluatingId(null);
                     } else if (job.status === 'failed') {
                         clearInterval(poll);
