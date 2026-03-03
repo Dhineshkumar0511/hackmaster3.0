@@ -31,14 +31,27 @@ router.get('/', authMiddleware, async (req, res) => {
 
 // POST /api/submissions
 router.post('/', authMiddleware, async (req, res) => {
-    const { phase, requirementNumber, githubUrl, description, useCaseId } = req.body;
+    const { phase, requirementNumber, requirementNumbers, githubUrl, description, useCaseId } = req.body;
     try {
         const [teamRows] = await pool.execute('SELECT id, name FROM teams WHERE team_number = ? AND batch = ?', [req.user.teamNumber, req.user.batch]);
         if (teamRows.length === 0) return res.status(404).json({ error: 'Team not found' });
 
+        // Always ONE submission per team per phase — delete old ones first
+        await pool.execute(
+            'DELETE FROM evaluation_results WHERE submission_id IN (SELECT id FROM submissions WHERE team_id = ? AND phase = ?)',
+            [teamRows[0].id, phase]
+        );
+        await pool.execute(
+            'DELETE FROM submissions WHERE team_id = ? AND phase = ?',
+            [teamRows[0].id, phase]
+        );
+
+        // requirement_number = 0 means "all requirements" (multi-req submission)
+        const reqNum = 0;
+
         await pool.execute(
             'INSERT INTO submissions (team_id, team_number, team_name, batch, phase, requirement_number, github_url, description, use_case_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [teamRows[0].id, req.user.teamNumber, req.user.teamName, req.user.batch, phase, requirementNumber, githubUrl, description, useCaseId]
+            [teamRows[0].id, req.user.teamNumber, req.user.teamName, req.user.batch, phase, reqNum, githubUrl, description, useCaseId]
         );
         res.json({ message: 'Submitted' });
     } catch (err) {

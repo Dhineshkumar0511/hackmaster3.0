@@ -17,16 +17,14 @@ export default function TeamSubmission() {
         if (!formData.githubUrl || formData.requirementNumbers.length === 0) return;
 
         setSubmitting(true);
-        // Multi-submission support
-        for (const reqNum of formData.requirementNumbers) {
-            await addSubmission({
-                githubUrl: formData.githubUrl,
-                requirementNumber: reqNum,
-                description: formData.description,
-                phase: formData.phase,
-                useCaseId: myTeam?.use_case_id,
-            });
-        }
+        // Single submission covering all selected requirements
+        await addSubmission({
+            githubUrl: formData.githubUrl,
+            requirementNumbers: formData.requirementNumbers,
+            description: formData.description,
+            phase: formData.phase,
+            useCaseId: myTeam?.use_case_id,
+        });
         setFormData({ githubUrl: '', requirementNumbers: [], description: '', phase: formData.phase });
         setSubmitting(false);
     };
@@ -177,8 +175,13 @@ export default function TeamSubmission() {
                                             <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{idx + 1}</td>
                                             <td><span className="badge badge-info">{sub.phase}</span></td>
                                             <td>
-                                                <span className="badge badge-primary">R{sub.requirement_number}</span>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{myUseCase?.requirements[sub.requirement_number - 1]}</div>
+                                                {sub.requirement_number === 0 || sub.requirement_number === '0'
+                                                    ? <span className="badge badge-success">ALL REQUIREMENTS</span>
+                                                    : <>
+                                                        <span className="badge badge-primary">R{sub.requirement_number}</span>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{myUseCase?.requirements[sub.requirement_number - 1]}</div>
+                                                      </>
+                                                }
                                             </td>
                                             <td><a href={sub.github_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem', wordBreak: 'break-all' }}>{sub.github_url.replace('https://github.com/', '')}</a></td>
                                             <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(sub.timestamp).toLocaleString()}</td>
