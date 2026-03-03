@@ -314,7 +314,7 @@ ${githubContext}`;
             : prompt;
 
         const requestBody = JSON.stringify({
-            model: 'llama3.3-70b',
+            model: 'llama3.1-8b',
             messages: [
                 {
                     role: 'system',
