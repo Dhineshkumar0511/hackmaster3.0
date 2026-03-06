@@ -262,8 +262,7 @@ async function cerebrasCall({ getKey, keyPoolSize, systemPrompt, userPrompt }) {
             { role: 'user', content: userPrompt }
         ],
         response_format: { type: 'json_object' },
-        temperature: 0,
-        seed: 42,
+        temperature: 0.4,
         max_tokens: 1024
     });
 
@@ -338,9 +337,15 @@ async function callAIPerRequirement({ getKey, keyPoolSize, useCaseTitle, useCase
 - DO NOT look for the exact function/method/variable name from the requirement text
 - Look for the UNDERLYING CONCEPT implemented in ANY form with ANY naming
 - If the logic/feature exists ANYWHERE in the codebase it COUNTS
-- "Met" = clearly implemented (score 70-100)
-- "Partial" = concept attempted but incomplete (score 25-69)
-- "Not Met" = concept completely absent (score 0-24)
+
+## SCORING BANDS (you MUST differentiate — do NOT default to 85):
+- "Met" with EXCELLENT implementation = score 90-100 (polished, robust, production-quality)
+- "Met" with GOOD implementation = score 75-89 (works well but has minor gaps)
+- "Met" with BASIC implementation = score 60-74 (functional but simplistic or has issues)
+- "Partial" = concept attempted but incomplete = score 30-59
+- "Not Met" = concept completely absent = score 0-29
+
+## IMPORTANT: Vary your scores based on actual code quality. A simple 5-line implementation is NOT the same as a robust 50-line one.
 
 ## PROJECT FILES:
 ${fileSummary}
@@ -365,7 +370,7 @@ Respond ONLY with this JSON:
             const score = clamp(reqResult.score);
             let status = reqResult.status;
             if (!['Met', 'Partial', 'Not Met'].includes(status)) {
-                status = score >= 70 ? 'Met' : score >= 25 ? 'Partial' : 'Not Met';
+                status = score >= 60 ? 'Met' : score >= 30 ? 'Partial' : 'Not Met';
             }
             console.log(`      ✅ R${i + 1}: ${status} (${score}%)`);
             detailedReport.push({
@@ -408,11 +413,16 @@ ${reqsSummary}
 - Languages: ${JSON.stringify(repoStats?.filesByType || {})}
 ${execSection}
 
-Now provide OVERALL scores (code quality and innovation — NOT requirement satisfaction):
+Now provide OVERALL scores. IMPORTANT: Do NOT default to scores around 85. Actively differentiate:
+- 90-100: Exceptional — clean architecture, proper error handling, well-organized modules
+- 70-89: Good — decent structure but some gaps in error handling or organization
+- 50-69: Average — basic structure, significant room for improvement
+- 25-49: Below average — poor organization, missing error handling
+- 0-24: Very poor — messy code, no structure
 
 {
-  "codeQuality": <0-100, judge code structure/error-handling/modularity>,
-  "innovation": <0-100, judge novelty/UX/production-readiness>,
+  "codeQuality": <0-100, judge code structure/error-handling/modularity — be specific and differentiated>,
+  "innovation": <0-100, judge novelty/UX/production-readiness — be specific and differentiated>,
   "plagiarismRisk": "Low|Medium|High",
   "feedback": "<4-6 sentence technical summary. Mention specific files. What works, what's missing.>"
 }`
@@ -421,7 +431,7 @@ Now provide OVERALL scores (code quality and innovation — NOT requirement sati
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
     const codeQuality = clamp(summaryResult?.codeQuality ?? 40, 0, 100);
     const innovation = clamp(summaryResult?.innovation ?? 30, 0, 100);
-    const requirementsMet = detailedReport.filter(r => r.score >= 70).length;
+    const requirementsMet = detailedReport.filter(r => r.score >= 60).length;
     const reqSatisfaction = detailedReport.length > 0
         ? clamp(detailedReport.reduce((s, r) => s + r.score, 0) / detailedReport.length, 0, 100)
         : 0;
@@ -549,8 +559,7 @@ ${githubContext}`;
                 }
             ],
             response_format: { type: 'json_object' },
-            temperature: 0,
-            seed: 42,
+            temperature: 0.4,
             max_tokens: 4096
         });
 
@@ -718,8 +727,8 @@ function sanitizeEvaluation(eval_, reqsList) {
         });
     }
 
-    // Count requirements met (score >= 70)
-    const requirementsMet = detailedReport.filter(r => r.score >= 70).length;
+    // Count requirements met (score >= 60)
+    const requirementsMet = detailedReport.filter(r => r.score >= 60).length;
 
     return {
         codeQuality,
@@ -833,7 +842,7 @@ function keywordBasedEvaluation(githubData, reqsList, useCaseTitle, execOutput =
     });
 
     const reqSatisfaction = Math.round(detailedReport.reduce((sum, r) => sum + r.score, 0) / detailedReport.length);
-    const requirementsMet = detailedReport.filter(r => r.score >= 70).length;
+    const requirementsMet = detailedReport.filter(r => r.score >= 60).length;
     const innovation = globalRelevance === 0 ? 0 : Math.min(Math.round(qualityScore * 0.5), 40);
 
     const totalScore = globalRelevance === 0 && titleKeywords.length > 0
