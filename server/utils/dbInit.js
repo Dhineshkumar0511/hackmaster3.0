@@ -90,15 +90,21 @@ export async function initDb() {
     )
   `);
 
-  // Ensure forge_logs column exists (migration for existing DBs)
+  // Ensure team_id column exists (migration for existing DBs)
   try {
     const [cols] = await pool.execute('DESCRIBE evaluation_results');
+    if (!cols.some(c => c.Field === 'team_id')) {
+      console.log('⚡ Adding `team_id` column to evaluation_results...');
+      await pool.execute('ALTER TABLE evaluation_results ADD COLUMN team_id INT');
+      await pool.execute('ALTER TABLE evaluation_results ADD FOREIGN KEY (team_id) REFERENCES teams(id)');
+    }
+    // Ensure forge_logs column exists
     if (!cols.some(c => c.Field === 'forge_logs')) {
       console.log('⚡ Adding `forge_logs` column to evaluation_results...');
       await pool.execute('ALTER TABLE evaluation_results ADD COLUMN forge_logs LONGTEXT');
     }
   } catch (err) {
-    console.warn('⚠️ forge_logs column sync warning (may already exist):', err.message);
+    console.warn('⚠️ evaluation_results column sync warning (may already exist):', err.message);
   }
 
   await pool.execute(`
