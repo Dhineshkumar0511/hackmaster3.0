@@ -20,6 +20,7 @@ export default function AdminSubmissions() {
     const [forgeSubmission, setForgeSubmission] = useState(null); // Track which submission forge is running on
     const [submissionComment, setSubmissionComment] = useState(''); // Store comment being edited
     const [editingCommentId, setEditingCommentId] = useState(null); // Track which submission comment is being edited
+    const [bulkProgress, setBulkProgress] = useState(null); // { type, current, total, completed, failed }
 
     const findUseCase = (useCaseId) => {
         return (useCases || []).find(u => u.id === useCaseId);
@@ -789,12 +790,124 @@ export default function AdminSubmissions() {
         );
     };
 
+    // Helper: queue one AI evaluation and wait for completion via polling
+    const queueAndWaitEvaluation = (submission, skipForge = true) => {
+        return new Promise(async (resolve) => {
+            try {
+                const useCase = findUseCase(submission.use_case_id);
+                const token = localStorage.getItem('hackmaster_token');
+                const res = await fetch('/api/evaluations/evaluate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                        submissionId: submission.id,
+                        useCaseTitle: useCase?.title || 'Unknown',
+                        useCaseObjective: useCase?.objective || '',
+                        domainChallenge: useCase?.domainChallenge || '',
+                        requirementText: 'ALL REQUIREMENTS',
+                        githubUrl: submission.github_url,
+                        phase: submission.phase,
+                        allRequirements: useCase?.requirements || [],
+                        skipForge
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) { resolve({ success: false, error: data.error }); return; }
+                const jobId = data.jobId;
+                let pollCount = 0;
+                const poll = setInterval(async () => {
+                    pollCount++;
+                    try {
+                        const statusRes = await fetch(`/api/evaluations/status/${jobId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                        if (!statusRes.ok) { clearInterval(poll); resolve({ success: false, error: 'Status check failed' }); return; }
+                        const job = await statusRes.json();
+                        if (job.status === 'completed') { clearInterval(poll); resolve({ success: true }); }
+                        else if (job.status === 'failed') { clearInterval(poll); resolve({ success: false, error: job.error }); }
+                        else if (pollCount > 150) { clearInterval(poll); resolve({ success: false, error: 'Timeout' }); }
+                    } catch (e) { clearInterval(poll); resolve({ success: false, error: e.message }); }
+                }, 2000);
+            } catch (err) { resolve({ success: false, error: err.message }); }
+        });
+    };
+
     const handleEvaluateAll = async () => {
         const pending = filteredSubmissions.filter(s => !evaluationResults[`sub_${s.id}`]);
-        for (const sub of pending) {
-            await handleEvaluate(sub);
-            await new Promise(r => setTimeout(r, 1000));
+        if (pending.length === 0) { showToast('No pending submissions to evaluate', 'info'); return; }
+        setBulkProgress({ type: 'AI Evaluate (Pending)', current: 0, total: pending.length, completed: 0, failed: 0 });
+        let completed = 0, failed = 0;
+        for (let i = 0; i < pending.length; i++) {
+            const sub = pending[i];
+            setBulkProgress(prev => ({ ...prev, current: i + 1 }));
+            setEvaluatingId(sub.id);
+            const result = await queueAndWaitEvaluation(sub);
+            if (result.success) { completed++; } else { failed++; }
+            setBulkProgress(prev => ({ ...prev, completed, failed }));
+            await fetchEvaluations();
+            setEvaluatingId(null);
+            if (i < pending.length - 1) await new Promise(r => setTimeout(r, 500));
         }
+        showToast(`✅ Bulk AI Evaluate done: ${completed} passed, ${failed} failed out of ${pending.length}`, completed > 0 ? 'success' : 'error');
+        setBulkProgress(null);
+    };
+
+    const handleAIEvaluateAllSubmissions = async () => {
+        const targets = filteredSubmissions;
+        if (targets.length === 0) { showToast('No submissions to evaluate', 'info'); return; }
+        if (!confirm(`Run AI Evaluation on ALL ${targets.length} filtered submissions (including already evaluated)?`)) return;
+        setBulkProgress({ type: 'AI Evaluate All', current: 0, total: targets.length, completed: 0, failed: 0 });
+        let completed = 0, failed = 0;
+        for (let i = 0; i < targets.length; i++) {
+            const sub = targets[i];
+            setBulkProgress(prev => ({ ...prev, current: i + 1 }));
+            setEvaluatingId(sub.id);
+            const result = await queueAndWaitEvaluation(sub);
+            if (result.success) { completed++; } else { failed++; }
+            setBulkProgress(prev => ({ ...prev, completed, failed }));
+            await fetchEvaluations();
+            setEvaluatingId(null);
+            if (i < targets.length - 1) await new Promise(r => setTimeout(r, 500));
+        }
+        showToast(`✅ AI Evaluate All done: ${completed} passed, ${failed} failed out of ${targets.length}`, completed > 0 ? 'success' : 'error');
+        setBulkProgress(null);
+    };
+
+    const handleFullAuditAll = async () => {
+        const targets = filteredSubmissions;
+        if (targets.length === 0) { showToast('No submissions to audit', 'info'); return; }
+        if (!confirm(`Run Full Audit (Forge + AI) on ALL ${targets.length} filtered submissions? This will take a while.`)) return;
+        setBulkProgress({ type: 'Full Audit All', current: 0, total: targets.length, completed: 0, failed: 0 });
+        let completed = 0, failed = 0;
+        const token = localStorage.getItem('hackmaster_token');
+        for (let i = 0; i < targets.length; i++) {
+            const sub = targets[i];
+            setBulkProgress(prev => ({ ...prev, current: i + 1 }));
+            setEvaluatingId(sub.id);
+            // Step 1: Forge
+            try {
+                let cleanUrl = sub.github_url;
+                if (cleanUrl && !cleanUrl.startsWith('http')) cleanUrl = `https://github.com/${cleanUrl.replace(/^\//, '')}`;
+                cleanUrl = cleanUrl.replace(/\/tree\/[^\/]+\/?$/, '').replace(/\/blob\/[^\/]+\/?$/, '');
+                await fetch('/api/admin-system/forge/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ submissionId: sub.id, githubUrl: cleanUrl }),
+                });
+            } catch (_) { /* forge failure is non-fatal, AI eval will still run */ }
+            // Step 2: AI evaluation
+            const result = await queueAndWaitEvaluation(sub, true);
+            if (result.success) { completed++; } else { failed++; }
+            setBulkProgress(prev => ({ ...prev, completed, failed }));
+            await fetchEvaluations();
+            setEvaluatingId(null);
+            if (i < targets.length - 1) await new Promise(r => setTimeout(r, 500));
+        }
+        showToast(`✅ Full Audit All done: ${completed} passed, ${failed} failed out of ${targets.length}`, completed > 0 ? 'success' : 'error');
+        setBulkProgress(null);
+    };
+
+    const handleCancelBulk = () => {
+        setBulkProgress(null);
+        setEvaluatingId(null);
     };
 
     const filteredSubmissions = submissions.filter(s => {
@@ -846,8 +959,10 @@ export default function AdminSubmissions() {
                             <option value="Phase 1">Phase 1</option><option value="Phase 2">Phase 2</option><option value="Phase 3">Phase 3</option>
                         </select>
                     </div>
-                    <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-                        {pendingCount > 0 && <button className="btn btn-primary btn-sm" onClick={handleEvaluateAll}>🤖 Evaluate All ({pendingCount})</button>}
+                    <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <button className="btn btn-sm" disabled={!!bulkProgress} onClick={handleFullAuditAll} style={{ background: 'linear-gradient(135deg, rgba(108,99,255,0.4), rgba(0,212,255,0.3))', border: '1px solid var(--primary-light)', color: '#fff', fontWeight: 800, fontSize: '0.7rem' }} title="Full Audit (Forge + AI) on all filtered submissions">🚀 Full Audit All ({filteredSubmissions.length})</button>
+                        <button className="btn btn-sm" disabled={!!bulkProgress} onClick={handleAIEvaluateAllSubmissions} style={{ background: 'rgba(108,99,255,0.15)', border: '1px solid rgba(108,99,255,0.3)', color: 'var(--primary-light)', fontWeight: 700, fontSize: '0.7rem' }} title="AI Evaluate all filtered submissions (re-evaluates already scored too)">🤖 AI Evaluate All ({filteredSubmissions.length})</button>
+                        {pendingCount > 0 && <button className="btn btn-primary btn-sm" disabled={!!bulkProgress} onClick={handleEvaluateAll}>🤖 Pending Only ({pendingCount})</button>}
                         <button className="btn btn-danger btn-sm" onClick={() => setShowDeleteAll(true)}>🗑️ Delete All</button>
                     </div>
                 </div>
@@ -856,6 +971,21 @@ export default function AdminSubmissions() {
                     🔨 = Forge structural check only &nbsp;|&nbsp;
                     🤖 = AI evaluation only (uses pre-cloned or GitHub scan)
                 </p>
+                {bulkProgress && (
+                    <div style={{ marginTop: 'var(--space-md)', padding: '12px 16px', borderRadius: '10px', background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.3)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--accent-cyan)', fontSize: '0.8rem' }}>⏳ {bulkProgress.type}: {bulkProgress.current}/{bulkProgress.total}</span>
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--accent-green)' }}>✅ {bulkProgress.completed}</span>
+                                {bulkProgress.failed > 0 && <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)' }}>❌ {bulkProgress.failed}</span>}
+                                <button className="btn btn-danger btn-sm" style={{ fontSize: '0.65rem', padding: '2px 8px' }} onClick={handleCancelBulk}>Stop</button>
+                            </div>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                            <div style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%`, height: '100%', borderRadius: '3px', background: 'linear-gradient(90deg, var(--primary), var(--accent-cyan))', transition: 'width 0.3s ease' }} />
+                        </div>
+                    </div>
+                )}
             </div>
 
             {showDeleteAll && (

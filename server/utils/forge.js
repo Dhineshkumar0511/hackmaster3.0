@@ -100,6 +100,7 @@ export async function forgeAudit(githubUrl, submissionId) {
             hasML: false,
             hasMobile: false,
             filesByExt: {},
+            requirementsPaths: [], // Track all requirements.txt locations
         };
 
         const entries = await fs.readdir(clonePath, { recursive: true });
@@ -124,7 +125,10 @@ export async function forgeAudit(githubUrl, submissionId) {
 
             // Core file detection
             if (fileName === 'package.json') stats.hasPackageJson = true;
-            if (fileName === 'requirements.txt' || fileName === 'setup.py' || fileName === 'pyproject.toml') stats.hasRequirementsTxt = true;
+            if (fileName === 'requirements.txt' || fileName === 'setup.py' || fileName === 'pyproject.toml') {
+                stats.hasRequirementsTxt = true;
+                if (fileName === 'requirements.txt') stats.requirementsPaths.push(entry);
+            }
             if (fileName === 'readme.md') stats.hasReadme = true;
 
             // Docker
@@ -217,12 +221,16 @@ export async function forgeAudit(githubUrl, submissionId) {
         }
         stats.languages.sort((a, b) => b.count - a.count);
 
+        // Detect Python project by presence of .py files (even without requirements.txt)
+        stats.hasPython = (stats.filesByExt['.py'] || 0) > 0 || (stats.filesByExt['.ipynb'] || 0) > 0;
+
         // Try to run build/install commands and capture output
         const buildLogs = [];
         let venvPython = null; // Track venv python path for later execution
 
-        try {
-            if (stats.hasPackageJson) {
+        // ---- Node.js dependencies ----
+        if (stats.hasPackageJson) {
+            try {
                 buildLogs.push({ type: 'cmd', text: '> npm install --production 2>&1' });
                 try {
                     const { stdout, stderr } = await execAsync(`npm install --production`, { timeout: 60000, cwd: clonePath });
@@ -235,10 +243,19 @@ export async function forgeAudit(githubUrl, submissionId) {
                     buildLogs.push({ type: 'error', text: `❌ npm install failed: ${(buildErr.message || '').substring(0, 150)}` });
                     stats.buildSuccess = false;
                 }
-            } else if (stats.hasRequirementsTxt) {
+            } catch (_) { /* build check is optional */ }
+        }
+
+        // ---- Python dependencies (runs even if package.json also exists) ----
+        // Also create venv for pure Python projects without requirements.txt so auto-install hook works at runtime
+        if (stats.hasRequirementsTxt || (stats.hasPython && !stats.hasPackageJson)) {
+            try {
                 // Create a virtualenv and install deps so execution works
                 const venvPath = path.join(clonePath, '.forge_venv');
-                buildLogs.push({ type: 'cmd', text: '> python3 -m venv .forge_venv && pip install -r requirements.txt' });
+                const hasReqFiles = stats.requirementsPaths.length > 0;
+                buildLogs.push({ type: 'cmd', text: hasReqFiles
+                    ? '> python -m venv .forge_venv && pip install -r requirements.txt'
+                    : '> python -m venv .forge_venv (no requirements.txt found — auto-install will handle deps at runtime)' });
                 try {
                     // Detect python command (Render Linux uses python3; Windows uses python)
                     const isWin = process.platform === 'win32';
@@ -260,28 +277,42 @@ export async function forgeAudit(githubUrl, submissionId) {
                     venvPython = isWin
                         ? path.join(venvPath, 'Scripts', 'python.exe')
                         : path.join(venvPath, 'bin', 'python');
-                    // Install requirements in venv
+                    // Install requirements from ALL found requirement files
                     const pipPath = isWin
                         ? path.join(venvPath, 'Scripts', 'pip.exe')
                         : path.join(venvPath, 'bin', 'pip');
-                    const reqFile = path.join(clonePath, 'requirements.txt');
-                    const { stdout, stderr } = await execAsync(
-                        `"${pipPath}" install -r "${reqFile}" --quiet --no-warn-script-location 2>&1`,
-                        { timeout: 90000 }
-                    );
-                    const output = ((stdout || '') + (stderr || '')).trim();
-                    const lines = output.split('\n').slice(-5);
-                    lines.forEach(l => { if (l.trim()) buildLogs.push({ type: 'info', text: l }); });
-                    buildLogs.push({ type: 'success', text: '✅ pip install successful (venv created)' });
+                    const reqPaths = stats.requirementsPaths;
+                    if (reqPaths.length > 0) {
+                        for (const reqRelPath of reqPaths) {
+                            const reqFile = path.join(clonePath, reqRelPath);
+                            try {
+                                await fs.access(reqFile);
+                                buildLogs.push({ type: 'info', text: `📦 Installing from ${reqRelPath}...` });
+                                const { stdout, stderr } = await execAsync(
+                                    `"${pipPath}" install -r "${reqFile}" --quiet --no-warn-script-location 2>&1`,
+                                    { timeout: 120000 }
+                                );
+                                const output = ((stdout || '') + (stderr || '')).trim();
+                                const lines = output.split('\n').slice(-3);
+                                lines.forEach(l => { if (l.trim()) buildLogs.push({ type: 'info', text: l }); });
+                            } catch (reqErr) {
+                                const msg = (reqErr.stderr || reqErr.message || '').substring(0, 150);
+                                buildLogs.push({ type: 'warning', text: `⚠️ Failed to install from ${reqRelPath}: ${msg}` });
+                            }
+                        }
+                        buildLogs.push({ type: 'success', text: `✅ pip install successful (venv created, ${reqPaths.length} requirements file(s))` });
+                    } else {
+                        buildLogs.push({ type: 'success', text: '✅ Python venv created (no requirements.txt — deps will auto-install at runtime)' });
+                    }
                     stats.buildSuccess = true;
                 } catch (buildErr) {
                     const msg = (buildErr.stderr || buildErr.message || '').substring(0, 200);
                     buildLogs.push({ type: 'error', text: `❌ pip install failed: ${msg}` });
-                    stats.buildSuccess = false;
+                    if (!stats.buildSuccess) stats.buildSuccess = false;
                     venvPython = null; // fallback to system python
                 }
-            }
-        } catch (_) { /* build check is optional */ }
+            } catch (_) { /* build check is optional */ }
+        }
 
         // ---- STEP: Execute main file and capture output ----
         const execResult = await forgeExecuteMain(clonePath, stats, venvPython);
@@ -337,7 +368,7 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
     } catch (_) {}
 
     // ---- Python project ----
-    if (stats.hasRequirementsTxt || stats.hasML) {
+    if (stats.hasRequirementsTxt || stats.hasML || stats.hasPython) {
         language = 'python';
         const pythonCandidates = ['main.py', 'app.py', 'run.py', 'server.py', 'api.py', 'predict.py', 'inference.py', 'demo.py'];
         for (const candidate of pythonCandidates) {
@@ -352,11 +383,14 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
         if (!mainFile) {
             try {
                 const allFiles = await fs.readdir(clonePath, { recursive: true });
-                const pyMain = allFiles.find(f => {
-                    const base = path.basename(f).toLowerCase();
-                    return (base === 'main.py' || base === 'app.py') && !f.includes('node_modules') && !f.includes('.git');
-                });
-                if (pyMain) mainFile = pyMain;
+                const subCandidates = ['main.py', 'app.py', 'run.py', 'server.py', 'api.py', 'predict.py', 'inference.py'];
+                for (const candidateName of subCandidates) {
+                    const found = allFiles.find(f => {
+                        const base = path.basename(f).toLowerCase();
+                        return base === candidateName && !f.includes('node_modules') && !f.includes('.git') && !f.includes('.forge_venv');
+                    });
+                    if (found) { mainFile = found; break; }
+                }
             } catch (_) {}
         }
 
@@ -370,9 +404,60 @@ async function forgeExecuteMain(clonePath, stats, venvPython = null) {
             const wrapperScript = path.join(clonePath, '.forge_wrapper.py');
             const wrapperCode = `#!/usr/bin/env python3
 import sys
+import os
 import traceback
 import importlib.util
+import importlib
 import types
+import subprocess
+
+# ---- Auto-install missing packages ----
+_original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+_install_attempted = set()
+
+def _auto_install_import(name, *args, **kwargs):
+    try:
+        return _original_import(name, *args, **kwargs)
+    except ImportError as e:
+        # Extract the top-level module name
+        top_module = name.split('.')[0]
+        # Skip stdlib and known non-pip modules
+        _skip_modules = {'org', 'com', 'net', 'io', 'java', 'javax', 'android',
+                         '__future__', '__forge_main__', 'config', 'utils', 'models',
+                         'routes', 'helpers', 'services', 'controllers', 'database',
+                         'settings', 'core', 'api', 'app', 'main', 'src', 'lib', 'test'}
+        if top_module in _skip_modules or top_module.startswith('_'):
+            raise
+        if top_module not in _install_attempted:
+            _install_attempted.add(top_module)
+            # Map common import names to pip package names
+            pip_name_map = {
+                'cv2': 'opencv-python', 'sklearn': 'scikit-learn',
+                'PIL': 'Pillow', 'yaml': 'PyYAML', 'bs4': 'beautifulsoup4',
+                'dotenv': 'python-dotenv', 'jwt': 'PyJWT',
+                'flask_cors': 'flask-cors', 'flask_sqlalchemy': 'flask-sqlalchemy',
+                'flask_login': 'flask-login', 'flask_wtf': 'flask-wtf',
+                'flask_mail': 'flask-mail', 'flask_migrate': 'flask-migrate',
+                'flask_restful': 'flask-restful', 'flask_socketio': 'flask-socketio',
+                'werkzeug': 'werkzeug', 'attr': 'attrs', 'serial': 'pyserial',
+                'skimage': 'scikit-image', 'gi': 'PyGObject',
+                'docx': 'python-docx', 'pptx': 'python-pptx',
+                'lxml': 'lxml', 'magic': 'python-magic',
+            }
+            pip_name = pip_name_map.get(top_module, top_module.replace('_', '-'))
+            print(f"[FORGE] Auto-installing missing package: {pip_name}")
+            try:
+                subprocess.check_call(
+                    [sys.executable, '-m', 'pip', 'install', pip_name, '--quiet', '--no-warn-script-location'],
+                    timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+                )
+                return _original_import(name, *args, **kwargs)
+            except Exception:
+                pass  # If auto-install fails, raise the original error
+        raise
+
+import builtins
+builtins.__import__ = _auto_install_import
 
 # ---- Mock AI client libraries to prevent import/init crashes ----
 # Student code like "client = Groq(api_key=...)" should NOT crash forge execution
@@ -411,8 +496,18 @@ sys.modules['google'] = google_mod
 sys.modules['google.genai'] = genai_mod
 
 try:
+    # Set working dir and sys.path to the entry point's parent dir
+    _main_path = "${mainAbsPath.replace(/\\/g, '\\\\')}"
+    _main_dir = os.path.dirname(os.path.abspath(_main_path))
+    _repo_root = os.path.dirname(_main_dir) if _main_dir != "${clonePath.replace(/\\/g, '\\\\')}" else _main_dir
+    os.chdir(_main_dir)
+    # Add both the entry point dir and repo root to sys.path
+    for _p in [_main_dir, _repo_root, "${clonePath.replace(/\\/g, '\\\\')}"]:
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
     # Load the main module
-    spec = importlib.util.spec_from_file_location("__forge_main__", "${mainAbsPath.replace(/\\/g, '\\\\')}")
+    spec = importlib.util.spec_from_file_location("__forge_main__", _main_path)
     if spec and spec.loader:
         module = importlib.util.module_from_spec(spec)
         sys.modules["__forge_main__"] = module
