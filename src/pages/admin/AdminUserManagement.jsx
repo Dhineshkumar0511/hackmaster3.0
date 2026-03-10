@@ -4,7 +4,7 @@ import { useAppContext } from '../../App';
 import { Loader2, UserPlus, Users, Trash2, Shield, Upload, AlertCircle } from 'lucide-react';
 
 export default function AdminUserManagement() {
-    const { showToast, selectedBatch } = useAppContext();
+    const { showToast, selectedBatch, refreshAll } = useAppContext();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [view, setView] = useState('list'); // 'list' or 'add'
@@ -99,6 +99,7 @@ export default function AdminUserManagement() {
             if (res.ok) {
                 showToast('Identity purged', 'info');
                 fetchUsers();
+                refreshAll();
             }
         } catch (err) {
             showToast('Termination failed', 'error');
@@ -119,6 +120,7 @@ export default function AdminUserManagement() {
             if (res.ok) {
                 showToast(`Wipe successful: ${batchToWipe}`, 'success');
                 fetchUsers();
+                refreshAll();
             }
         } catch (err) {
             showToast('Wipe command failed', 'error');

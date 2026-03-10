@@ -28,6 +28,7 @@ import settingsRoutes from './server/routes/settings.js';
 import certificateRoutes from './server/routes/certificates.js';
 import useCaseRoutes from './server/routes/useCases.js';
 import userRoutes from './server/routes/users.js';
+import { cleanOrphanedTeams } from './server/routes/users.js';
 import adminActionRoutes from './server/routes/adminActions.js';
 
 dotenv.config();
@@ -106,6 +107,10 @@ async function start() {
         console.log('📄 TEAMS DB COLUMNS:', testCols.map(c => c.Field).join(', '));
 
         await seedInitialData();
+
+        // Clean orphaned teams (teams with no users) on startup
+        const cleaned = await cleanOrphanedTeams();
+        if (cleaned > 0) console.log(`🧹 Cleaned ${cleaned} orphaned team(s) on startup`);
 
         app.listen(PORT, () => console.log(`🚀 HackMaster running on http://localhost:${PORT}`));
     } catch (err) {
