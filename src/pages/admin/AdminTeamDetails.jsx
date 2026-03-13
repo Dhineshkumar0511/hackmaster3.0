@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../../App';
 
 export default function AdminTeamDetails() {
@@ -6,17 +6,54 @@ export default function AdminTeamDetails() {
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedTeam, setExpandedTeam] = useState(null);
     const [confirmClear, setConfirmClear] = useState(null);
+    const [batchStats, setBatchStats] = useState({});
 
     const allUCs = useCases || [];
+
+    const hasTeamRegistration = useCallback(
+        (team) => Array.isArray(team.members) && team.members.some(m => m?.name?.trim()),
+        []
+    );
+
+    const loadBatchStats = useCallback(async () => {
+        const token = localStorage.getItem('hackmaster_token');
+        const headers = {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        };
+
+        try {
+            const responses = await Promise.all(
+                batches.map(async (batch) => {
+                    const res = await fetch(`/api/teams?batch=${batch.id}`, { headers });
+                    if (!res.ok) throw new Error(`Failed to load team stats for batch ${batch.id}`);
+                    const batchTeams = await res.json();
+                    const registered = batchTeams.filter(hasTeamRegistration).length;
+                    const pending = Math.max(batchTeams.length - registered, 0);
+
+                    return [batch.id, { total: batchTeams.length, registered, pending }];
+                })
+            );
+
+            setBatchStats(Object.fromEntries(responses));
+        } catch {
+            showToast('Failed to load batch-wise team stats', 'error');
+        }
+    }, [batches, hasTeamRegistration, showToast]);
+
+    useEffect(() => {
+        loadBatchStats();
+    }, [loadBatchStats]);
 
     const filteredTeams = teams.filter(t =>
         t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         String(t.team_number).includes(searchTerm)
     );
 
-    const handleClearRegistration = async (teamId, teamName) => {
+    const handleClearRegistration = async (teamId) => {
         await clearTeamRegistration(teamId);
         setConfirmClear(null);
+        loadBatchStats();
     };
 
     return (
@@ -39,6 +76,44 @@ export default function AdminTeamDetails() {
                 ))}
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-md)', marginBottom: 'var(--space-xl)' }}>
+                <div className="glass-card" style={{ padding: 'var(--space-lg)' }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)', letterSpacing: '0.03em' }}>⏳ Pending Teams</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {batches.map((b) => (
+                            <div key={`pending-${b.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.86rem' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>{b.label}</span>
+                                <span style={{ color: 'var(--accent-orange)', fontWeight: 700 }}>{batchStats[b.id]?.pending ?? 0}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="glass-card" style={{ padding: 'var(--space-lg)' }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)', letterSpacing: '0.03em' }}>👥 Total Teams</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {batches.map((b) => (
+                            <div key={`total-${b.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.86rem' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>{b.label}</span>
+                                <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>{batchStats[b.id]?.total ?? 0}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="glass-card" style={{ padding: 'var(--space-lg)' }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)', letterSpacing: '0.03em' }}>✅ Registered Teams</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {batches.map((b) => (
+                            <div key={`registered-${b.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.86rem' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>{b.label}</span>
+                                <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{batchStats[b.id]?.registered ?? 0}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
             <div style={{ marginBottom: 'var(--space-xl)' }}>
                 <input className="form-input" placeholder="🔍 Search by team name or number..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ maxWidth: '400px' }} />
             </div>
@@ -54,7 +129,7 @@ export default function AdminTeamDetails() {
                     filteredTeams.map(team => {
                         const uc = team.use_case_id ? allUCs.find(u => u.id === team.use_case_id) : null;
                         const isExpanded = expandedTeam === team.id;
-                        const hasRegistration = team.members?.length > 0 && team.members.some(m => m.name);
+                        const hasRegistration = hasTeamRegistration(team);
 
                         return (
                             <div key={team.id} className="glass-card" style={{ padding: 'var(--space-xl)', cursor: 'pointer' }} onClick={() => setExpandedTeam(isExpanded ? null : team.id)}>
@@ -89,7 +164,7 @@ export default function AdminTeamDetails() {
                                                     {confirmClear === team.id ? (
                                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                                                             <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)' }}>Clear all data?</span>
-                                                            <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleClearRegistration(team.id, team.name); }}
+                                                            <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleClearRegistration(team.id); }}
                                                                 style={{ background: 'var(--accent-red)', color: '#fff', fontSize: '0.7rem', padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer' }}>
                                                                 ✓ Yes, Clear
                                                             </button>
